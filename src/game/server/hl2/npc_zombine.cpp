@@ -73,7 +73,7 @@ int AE_ZOMBINE_PULLPIN;
 
 extern bool IsAlyxInDarknessMode();
 
-ConVar	sk_zombie_soldier_health( "sk_zombie_soldier_health","0");
+ConVar	sk_zombie_soldier_health( "sk_zombie_soldier_health", "120", FCVAR_NOTIFY, "Health of npc_zombine." );
 
 float g_flZombineGrenadeTimes = 0;
 
