@@ -108,6 +108,9 @@ public:
 	virtual void CreateStandardEntities( void );
 	virtual void ClientSettingsChanged( CBasePlayer *pPlayer );
 	virtual int PlayerRelationship( CBaseEntity *pPlayer, CBaseEntity *pTarget );
+#ifndef CLIENT_DLL
+	virtual bool FPlayerCanTakeDamage( CBasePlayer *pPlayer, CBaseEntity *pAttacker, const CTakeDamageInfo &info );
+#endif
 	virtual void GoToIntermission( void );
 	virtual void DeathNotice( CBasePlayer *pVictim, const CTakeDamageInfo &info );
 	virtual const char *GetGameDescription( void );
