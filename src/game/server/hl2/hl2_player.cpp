@@ -36,10 +36,14 @@
 #include "te_effect_dispatch.h" 
 #include "ai_basenpc.h"
 #include "AI_Criteria.h"
+#include "soundent.h"
 #include "npc_barnacle.h"
 #include "entitylist.h"
 #include "env_zoom.h"
 #include "hl2_gamerules.h"
+#ifdef HL2MP
+#include "hl2mp_gamerules.h"
+#endif
 #include "prop_combine_ball.h"
 #include "datacache/imdlcache.h"
 #include "eventqueue.h"
@@ -314,12 +318,14 @@ static void CC_SurvivalDump( const CCommand & )
 		return;
 	}
 
-	Survival_Reply( pPlayer, UTIL_VarArgs( "survival_dump: %s (#%d) hunger %.2f thirst %.2f stamina %.2f food %d water %d\n",
+	Survival_Reply( pPlayer, UTIL_VarArgs( "survival_dump: %s (#%d) hunger %.2f thirst %.2f stamina %.2f infection %.2f downed %d food %d water %d\n",
 		pHL2Player->GetPlayerName(),
 		pHL2Player->entindex(),
 		pHL2Player->SurvivalNeeds_GetHunger(),
 		pHL2Player->SurvivalNeeds_GetThirst(),
 		pHL2Player->SurvivalNeeds_GetStamina(),
+		pHL2Player->Survival_GetInfection(),
+		pHL2Player->Survival_IsDowned() ? 1 : 0,
 		pHL2Player->SurvivalInventory_CountType( SURVIVAL_ITEM_FOOD ),
 		pHL2Player->SurvivalInventory_CountType( SURVIVAL_ITEM_WATER ) ) );
 }
@@ -444,6 +450,76 @@ static ConCommand survival_inventory( "survival_inventory", CC_SurvivalInventory
 static ConCommand survival_eat( "survival_eat", CC_SurvivalEat, "Eat the first food item in the backpack. Bind a key: bind g survival_eat" );
 static ConCommand survival_drink( "survival_drink", CC_SurvivalDrink, "Drink the first water item in the backpack. Bind a key: bind h survival_drink" );
 
+static void CC_SurvivalInfect( const CCommand &args )
+{
+	CBasePlayer *pPlayer = UTIL_GetCommandClient();
+	CHL2_Player *pHL2Player = dynamic_cast<CHL2_Player *>( pPlayer );
+	if ( !pHL2Player )
+	{
+		Msg( "survival_infect: must be run by a player.\n" );
+		return;
+	}
+
+	float flValue = 1.0f;
+	if ( args.ArgC() >= 2 && !Survival_ParseValue( args[1], &flValue ) )
+	{
+		Survival_Reply( pPlayer, "Usage: survival_infect [0-100]\n" );
+		return;
+	}
+
+	pHL2Player->Survival_SetInfection( flValue );
+	Survival_Reply( pPlayer, UTIL_VarArgs( "survival_infect: infection %.2f\n", pHL2Player->Survival_GetInfection() ) );
+}
+
+static void CC_SurvivalClearInfection( const CCommand & )
+{
+	CBasePlayer *pPlayer = UTIL_GetCommandClient();
+	CHL2_Player *pHL2Player = dynamic_cast<CHL2_Player *>( pPlayer );
+	if ( !pHL2Player )
+	{
+		Msg( "survival_clear_infection: must be run by a player.\n" );
+		return;
+	}
+
+	pHL2Player->Survival_ClearInfection();
+	Survival_Reply( pPlayer, "survival_clear_infection: infection 0\n" );
+}
+
+static void CC_SurvivalDown( const CCommand & )
+{
+	CBasePlayer *pPlayer = UTIL_GetCommandClient();
+	CHL2_Player *pHL2Player = dynamic_cast<CHL2_Player *>( pPlayer );
+	if ( !pHL2Player || !pHL2Player->IsAlive() )
+	{
+		Msg( "survival_down: must be run by a living player.\n" );
+		return;
+	}
+
+	pHL2Player->Survival_EnterDowned();
+	Survival_Reply( pPlayer, "survival_down: player is downed\n" );
+}
+
+static void CC_SurvivalNoise( const CCommand & )
+{
+	CBasePlayer *pPlayer = UTIL_GetCommandClient();
+	if ( !pPlayer )
+	{
+		Msg( "survival_noise: must be run by a player.\n" );
+		return;
+	}
+
+	extern ConVar sv_survival_noise_radius_gun;
+	Survival_EmitNoise( pPlayer->GetAbsOrigin(), sv_survival_noise_radius_gun.GetFloat(), pPlayer );
+	if ( pPlayer )
+		ClientPrint( pPlayer, HUD_PRINTCONSOLE, "survival_noise: pulse sent\n" );
+	Msg( "survival_noise: pulse sent\n" );
+}
+
+static ConCommand survival_infect( "survival_infect", CC_SurvivalInfect, "Infect the calling player. Optional amount 0-100. Requires sv_cheats 1.", FCVAR_CHEAT );
+static ConCommand survival_clear_infection( "survival_clear_infection", CC_SurvivalClearInfection, "Clear the calling player's infection. Requires sv_cheats 1.", FCVAR_CHEAT );
+static ConCommand survival_down( "survival_down", CC_SurvivalDown, "Put the calling player in the downed state. Requires sv_cheats 1.", FCVAR_CHEAT );
+static ConCommand survival_noise( "survival_noise", CC_SurvivalNoise, "Attract zombies to the calling player. Requires sv_cheats 1.", FCVAR_CHEAT );
+
 #ifndef HL2MP
 #ifndef PORTAL
 LINK_ENTITY_TO_CLASS( player, CHL2_Player );
@@ -475,6 +551,10 @@ BEGIN_DATADESC( CHL2_Player )
 	DEFINE_FIELD( m_fIsSprinting, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_fIsWalking, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_flNextSurvivalDamageTime, FIELD_TIME ),
+	DEFINE_FIELD( m_flNextInfectionDamageTime, FIELD_TIME ),
+	DEFINE_FIELD( m_flReviveChannel, FIELD_FLOAT ),
+	DEFINE_FIELD( m_hReviveTarget, FIELD_EHANDLE ),
+	DEFINE_FIELD( m_bSurvivalForceDeath, FIELD_BOOLEAN ),
 
 	/*
 	// These are initialized every time the player calls Activate()
@@ -546,6 +626,9 @@ CHL2_Player::CHL2_Player()
 	m_flArmorReductionTime = 0.0f;
 	m_iArmorReductionFrom = 0;
 	m_flNextSurvivalDamageTime = 0.0f;
+	m_flNextInfectionDamageTime = 0.0f;
+	m_flReviveChannel = 0.0f;
+	m_bSurvivalForceDeath = false;
 }
 
 //
@@ -723,6 +806,13 @@ void CHL2_Player::HandleSpeedChanges( CMoveData *mv )
 
 	m_HL2Local.m_bNewSprinting = bSprinting;
 
+	if ( Survival_IsDowned() )
+	{
+		m_HL2Local.m_bNewSprinting = false;
+		Survival_ApplyDownedMove( mv );
+		return;
+	}
+
 	if ( bSprinting )
 	{
 		if ( bJustPressedSpeed )
@@ -743,6 +833,8 @@ void CHL2_Player::HandleSpeedChanges( CMoveData *mv )
 	}
 
 	mv->m_flMaxSpeed = sv_maxspeed.GetFloat();
+
+	Survival_OnSprintNoise();
 }
 
 void CHL2_Player::ReduceTimers( CMoveData *mv )
@@ -806,7 +898,11 @@ void CHL2_Player::PreThink(void)
 	}
 #endif//HL2_EPISODIC
 
-	// Hunger, thirst and stamina. Runs in vehicles too; CHL2MP_Player::PreThink calls this.
+	// Hunger, thirst, infection, bleed-out and revive. Runs in vehicles too.
+	Survival_SuppressDownedInput();
+	Survival_UpdateInfection();
+	Survival_UpdateDowned();
+	Survival_UpdateRevive();
 	SurvivalNeeds_Update();
 
 	// Riding a vehicle?
@@ -910,6 +1006,7 @@ void CHL2_Player::PreThink(void)
 		return;         // finale
 
 	VPROF_SCOPE_BEGIN( "CHL2_Player::PreThink-ItemPreFrame" );
+	Survival_SuppressDownedInput();
 	ItemPreFrame( );
 	VPROF_SCOPE_END();
 
@@ -1406,6 +1503,9 @@ void CHL2_Player::InitSprinting( void )
 //-----------------------------------------------------------------------------
 bool CHL2_Player::CanSprint()
 {
+	if ( Survival_IsDowned() )
+		return false;
+
 	if ( SurvivalNeeds_BlocksSprint() )
 		return false;
 
@@ -2054,11 +2154,19 @@ void CHL2_Player::SuitPower_Initialize( void )
 //-----------------------------------------------------------------------------
 // Survival needs. Separate from suit power. 100 = fine.
 //-----------------------------------------------------------------------------
+extern ConVar sv_survival_infect_clear_on_respawn;
+
 void CHL2_Player::SurvivalNeeds_Reset( void )
 {
 	m_HL2Local.m_flHunger = 100.0f;
 	m_HL2Local.m_flThirst = 100.0f;
 	m_HL2Local.m_flStamina = 100.0f;
+	Survival_ClearDowned();
+	m_bSurvivalForceDeath = false;
+	m_flReviveChannel = 0.0f;
+	m_hReviveTarget = NULL;
+	if ( sv_survival_infect_clear_on_respawn.GetBool() )
+		m_HL2Local.m_flInfection = 0.0f;
 }
 
 void CHL2_Player::Survival_Rest( void )
@@ -2077,6 +2185,404 @@ ConVar sv_survival_hunger_damage( "sv_survival_hunger_damage", "2", FCVAR_NOTIFY
 ConVar sv_survival_thirst_damage( "sv_survival_thirst_damage", "3", FCVAR_NOTIFY, "Damage each interval while thirst is empty." );
 ConVar sv_survival_empty_damage( "sv_survival_empty_damage", "0", FCVAR_NOTIFY, "Extra damage each interval if hunger or thirst is empty. Added on top of the split damage ConVars." );
 ConVar sv_survival_empty_damage_interval( "sv_survival_empty_damage_interval", "1", FCVAR_NOTIFY, "Seconds between empty-need damage ticks." );
+
+ConVar sv_survival_infect_chance( "sv_survival_infect_chance", "0.35", FCVAR_NOTIFY, "Chance a zombie hit infects the player. 0 never, 1 always." );
+ConVar sv_survival_infect_rate( "sv_survival_infect_rate", "1", FCVAR_NOTIFY, "Infection points gained per second. 100 kills the player." );
+ConVar sv_survival_infect_damage( "sv_survival_infect_damage", "1", FCVAR_NOTIFY, "Health lost each infection tick. 0 disables the drain." );
+ConVar sv_survival_infect_damage_interval( "sv_survival_infect_damage_interval", "3", FCVAR_NOTIFY, "Seconds between infection health ticks." );
+ConVar sv_survival_infect_clear_on_respawn( "sv_survival_infect_clear_on_respawn", "1", FCVAR_NOTIFY, "Clear infection when the player spawns. The MVP does not keep it across lives." );
+
+ConVar sv_survival_noise_enabled( "sv_survival_noise_enabled", "1", FCVAR_NOTIFY, "Sprint, gunfire, crates and +use wake nearby zombies." );
+ConVar sv_survival_noise_cooldown( "sv_survival_noise_cooldown", "0.75", FCVAR_NOTIFY, "Seconds between noise pulses from the same player." );
+ConVar sv_survival_noise_radius_sprint( "sv_survival_noise_radius_sprint", "480", FCVAR_NOTIFY, "Sprint noise radius, in units." );
+ConVar sv_survival_noise_radius_gun( "sv_survival_noise_radius_gun", "900", FCVAR_NOTIFY, "Gunfire noise radius, in units." );
+ConVar sv_survival_noise_radius_crate( "sv_survival_noise_radius_crate", "420", FCVAR_NOTIFY, "Loot container noise radius, in units." );
+ConVar sv_survival_noise_radius_use( "sv_survival_noise_radius_use", "280", FCVAR_NOTIFY, "Loud +use noise radius, in units." );
+ConVar sv_survival_noise_night_mul( "sv_survival_noise_night_mul", "1.5", FCVAR_NOTIFY, "Radius multiplier from 20:00 to 06:00. 1 leaves night the same as day." );
+
+ConVar sv_survival_downed_enabled( "sv_survival_downed_enabled", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "The first lethal hit downs the player instead of killing them." );
+ConVar sv_survival_downed_time( "sv_survival_downed_time", "25", FCVAR_NOTIFY, "Seconds a downed player can be revived before they die." );
+ConVar sv_survival_downed_speed( "sv_survival_downed_speed", "45", FCVAR_REPLICATED | FCVAR_NOTIFY, "Crawl speed while downed." );
+ConVar sv_survival_revive_time( "sv_survival_revive_time", "3", FCVAR_NOTIFY, "Seconds a teammate must hold +use to revive." );
+ConVar sv_survival_revive_range( "sv_survival_revive_range", "96", FCVAR_NOTIFY, "Distance at which +use can revive a downed teammate." );
+ConVar sv_survival_revive_health( "sv_survival_revive_health", "30", FCVAR_NOTIFY, "Health restored by a revive. Infection is not cleared." );
+
+static bool Survival_IsZombieEntity( CBaseEntity *pEnt )
+{
+	if ( !pEnt )
+		return false;
+
+	if ( pEnt->Classify() == CLASS_ZOMBIE )
+		return true;
+
+	const char *psz = pEnt->GetClassname();
+	if ( !psz || !psz[0] )
+		return false;
+
+	// Classname covers torso variants and a slumped zombie, which reports CLASS_NONE.
+	if ( !Q_strnicmp( psz, "npc_zombie", 10 ) )
+		return true;
+	if ( !Q_strnicmp( psz, "npc_fastzombie", 14 ) )
+		return true;
+	if ( !Q_strnicmp( psz, "npc_poisonzombie", 16 ) )
+		return true;
+	if ( !Q_strnicmp( psz, "npc_zombine", 11 ) )
+		return true;
+
+	return false;
+}
+
+void Survival_EmitNoise( const Vector &vecOrigin, float flRadius, CBaseEntity *pOwner )
+{
+	if ( !sv_survival_noise_enabled.GetBool() || flRadius <= 0.0f )
+		return;
+
+#ifdef HL2MP
+	if ( HL2MPRules() )
+	{
+		float flHour = HL2MPRules()->Survival_GetHour();
+		if ( flHour >= 20.0f || flHour < 6.0f )
+		{
+			float flMul = sv_survival_noise_night_mul.GetFloat();
+			if ( flMul < 0.0f )
+				flMul = 0.0f;
+			flRadius *= flMul;
+		}
+	}
+#endif
+
+	if ( flRadius < 1.0f )
+		return;
+
+	int nSlot = 0;
+	if ( pOwner )
+	{
+		nSlot = pOwner->entindex();
+		if ( nSlot < 0 || nSlot > MAX_PLAYERS )
+			nSlot = 0;
+	}
+
+	static float s_flNextNoise[MAX_PLAYERS + 1];
+	float flCooldown = sv_survival_noise_cooldown.GetFloat();
+	if ( flCooldown < 0.05f )
+		flCooldown = 0.05f;
+	if ( gpGlobals->curtime < s_flNextNoise[nSlot] )
+		return;
+	s_flNextNoise[nSlot] = gpGlobals->curtime + flCooldown;
+
+	int iRadius = (int)flRadius;
+	if ( iRadius > 4096 )
+		iRadius = 4096;
+
+	// SOUND_COMBAT is in every zombie's GetSoundInterests (the base NPC set).
+	// Hearing it only faces them (SCHED_ALERT_FACE_BESTSOUND). The chase below
+	// is what actually pulls them: UpdateEnemyMemory + SetEnemy + combat state.
+	CSoundEnt::InsertSound( SOUND_COMBAT, vecOrigin, iRadius, 2.0f, pOwner );
+
+	CBasePlayer *pThreat = ToBasePlayer( pOwner );
+	if ( !pThreat || !pThreat->IsAlive() )
+		pThreat = NULL;
+
+	if ( !pThreat )
+	{
+		float flBest = flRadius;
+		for ( int i = 1; i <= gpGlobals->maxClients; i++ )
+		{
+			CBasePlayer *pPlayer = UTIL_PlayerByIndex( i );
+			if ( !pPlayer || !pPlayer->IsAlive() )
+				continue;
+			float flDist = pPlayer->GetAbsOrigin().DistTo( vecOrigin );
+			if ( flDist < flBest )
+			{
+				flBest = flDist;
+				pThreat = pPlayer;
+			}
+		}
+	}
+
+	CAI_BaseNPC **ppAIs = g_AI_Manager.AccessAIs();
+	int nAIs = g_AI_Manager.NumAIs();
+	for ( int i = 0; i < nAIs; i++ )
+	{
+		CAI_BaseNPC *pNPC = ppAIs[i];
+		if ( !pNPC || !pNPC->IsAlive() || !Survival_IsZombieEntity( pNPC ) )
+			continue;
+		if ( pNPC->GetAbsOrigin().DistTo( vecOrigin ) > flRadius )
+			continue;
+
+		pNPC->Wake();
+		pNPC->SetEfficiency( AIE_NORMAL );
+
+		if ( pNPC->IsInAScript() || pNPC->GetState() == NPC_STATE_SCRIPT || pNPC->GetState() == NPC_STATE_DEAD )
+			continue;
+
+		if ( pNPC->GetEnemy() && pNPC->GetEnemy()->IsAlive() && pNPC->FVisible( pNPC->GetEnemy() ) )
+			continue;
+
+		if ( !pThreat )
+			continue;
+
+		pNPC->UpdateEnemyMemory( pThreat, vecOrigin, pNPC );
+		pNPC->SetEnemy( pThreat );
+		pNPC->SetState( NPC_STATE_COMBAT );
+		pNPC->ForceDecisionThink();
+	}
+}
+
+void CHL2_Player::Survival_OnSprintNoise( void )
+{
+	if ( !m_HL2Local.m_bNewSprinting || Survival_IsDowned() || !IsAlive() )
+		return;
+
+	Survival_EmitNoise( GetAbsOrigin(), sv_survival_noise_radius_sprint.GetFloat(), this );
+}
+
+void CHL2_Player::Survival_OnUseNoise( void )
+{
+	if ( Survival_IsDowned() || !IsAlive() )
+		return;
+
+	Survival_EmitNoise( GetAbsOrigin(), sv_survival_noise_radius_use.GetFloat(), this );
+}
+
+void CHL2_Player::Survival_ApplyDownedMove( CMoveData *mv )
+{
+	float flSpeed = sv_survival_downed_speed.GetFloat();
+	if ( flSpeed < 1.0f )
+		flSpeed = 1.0f;
+
+	mv->m_flClientMaxSpeed = flSpeed;
+	mv->m_flMaxSpeed = flSpeed;
+}
+
+void CHL2_Player::Survival_SuppressDownedInput( void )
+{
+	if ( !Survival_IsDowned() )
+		return;
+
+	m_nButtons &= ~( IN_ATTACK | IN_ATTACK2 | IN_RELOAD | IN_SPEED | IN_JUMP );
+	m_afButtonPressed &= ~( IN_ATTACK | IN_ATTACK2 | IN_RELOAD | IN_JUMP );
+}
+
+void CHL2_Player::Survival_SetInfection( float flValue )
+{
+	m_HL2Local.m_flInfection = clamp( flValue, 0.0f, 100.0f );
+}
+
+void CHL2_Player::Survival_ClearInfection( void )
+{
+	m_HL2Local.m_flInfection = 0.0f;
+}
+
+void CHL2_Player::Survival_ClearDowned( void )
+{
+	m_HL2Local.m_bSurvivalDowned = false;
+	m_HL2Local.m_flDownedEnds = 0.0f;
+	m_HL2Local.m_bReviveHint = false;
+	m_HL2Local.m_flReviveProgress = 0.0f;
+}
+
+void CHL2_Player::Survival_EnterDowned( void )
+{
+	if ( !sv_survival_downed_enabled.GetBool() )
+		return;
+
+	float flTime = sv_survival_downed_time.GetFloat();
+	if ( flTime < 1.0f )
+		flTime = 1.0f;
+
+	m_iHealth = 1;
+	m_lifeState = LIFE_ALIVE;
+	m_HL2Local.m_bSurvivalDowned = true;
+	m_HL2Local.m_flDownedEnds = gpGlobals->curtime + flTime;
+	m_bSurvivalForceDeath = false;
+	RemoveFlag( FL_FROZEN );
+	pl.deadflag = false;
+
+	IPhysicsObject *pPhys = VPhysicsGetObject();
+	if ( pPhys )
+		pPhys->EnableCollisions( true );
+
+	ClientPrint( this, HUD_PRINTCENTER, "#Survival_Downed" );
+}
+
+void CHL2_Player::Survival_TryInfect( const CTakeDamageInfo &info )
+{
+	if ( m_HL2Local.m_flInfection > 0.0f )
+		return;
+
+	CBaseEntity *pAttacker = info.GetAttacker();
+	CBaseEntity *pInflictor = info.GetInflictor();
+	bool bZombie = Survival_IsZombieEntity( pAttacker ) || Survival_IsZombieEntity( pInflictor );
+	if ( !bZombie && pInflictor )
+		bZombie = Survival_IsZombieEntity( pInflictor->GetOwnerEntity() );
+	if ( !bZombie )
+		return;
+
+	float flChance = clamp( sv_survival_infect_chance.GetFloat(), 0.0f, 1.0f );
+	if ( flChance <= 0.0f )
+		return;
+	if ( flChance < 1.0f && random->RandomFloat( 0.0f, 1.0f ) > flChance )
+		return;
+
+	m_HL2Local.m_flInfection = 1.0f;
+	ClientPrint( this, HUD_PRINTCENTER, "#Survival_Bitten" );
+}
+
+void CHL2_Player::Survival_UpdateInfection( void )
+{
+	if ( !IsAlive() || m_HL2Local.m_flInfection <= 0.0f || m_bSurvivalForceDeath )
+		return;
+
+	float flDt = gpGlobals->frametime;
+	if ( flDt < 0.0f )
+		flDt = 0.0f;
+
+	float flInf = m_HL2Local.m_flInfection + sv_survival_infect_rate.GetFloat() * flDt;
+	if ( flInf >= 100.0f )
+	{
+		m_HL2Local.m_flInfection = 100.0f;
+		m_bSurvivalForceDeath = true;
+		CTakeDamageInfo killInfo( this, this, GetHealth() + 50.0f, DMG_POISON );
+		TakeDamage( killInfo );
+		return;
+	}
+
+	m_HL2Local.m_flInfection = flInf;
+
+	float flDamage = sv_survival_infect_damage.GetFloat();
+	if ( flDamage <= 0.0f )
+		return;
+	if ( gpGlobals->curtime < m_flNextInfectionDamageTime )
+		return;
+
+	float flInterval = sv_survival_infect_damage_interval.GetFloat();
+	if ( flInterval < 0.1f )
+		flInterval = 0.1f;
+	m_flNextInfectionDamageTime = gpGlobals->curtime + flInterval;
+
+	CTakeDamageInfo dmg( this, this, flDamage, DMG_POISON );
+	TakeDamage( dmg );
+}
+
+void CHL2_Player::Survival_UpdateDowned( void )
+{
+	if ( !Survival_IsDowned() || !IsAlive() || m_bSurvivalForceDeath )
+		return;
+
+	if ( gpGlobals->curtime < m_HL2Local.m_flDownedEnds )
+		return;
+
+	m_bSurvivalForceDeath = true;
+	CTakeDamageInfo info( this, this, GetHealth() + 50.0f, DMG_GENERIC );
+	TakeDamage( info );
+}
+
+static CHL2_Player *Survival_FindDownedAlly( CHL2_Player *pPlayer )
+{
+	if ( !pPlayer )
+		return NULL;
+
+	Vector vecStart = pPlayer->EyePosition();
+	Vector vecForward;
+	AngleVectors( pPlayer->EyeAngles(), &vecForward );
+
+	float flRange = sv_survival_revive_range.GetFloat();
+	if ( flRange < 16.0f )
+		flRange = 16.0f;
+
+	CHL2_Player *pBest = NULL;
+	float flBest = flRange;
+
+	for ( int i = 1; i <= gpGlobals->maxClients; i++ )
+	{
+		CHL2_Player *pOther = dynamic_cast<CHL2_Player *>( UTIL_PlayerByIndex( i ) );
+		if ( !pOther || pOther == pPlayer || !pOther->IsAlive() || !pOther->Survival_IsDowned() )
+			continue;
+
+		Vector vecTo = pOther->WorldSpaceCenter() - vecStart;
+		float flDist = vecTo.Length();
+		if ( flDist > flRange || flDist < 1.0f )
+			continue;
+
+		Vector vecDir = vecTo / flDist;
+		if ( DotProduct( vecDir, vecForward ) < 0.55f )
+			continue;
+
+		trace_t tr;
+		CTraceFilterSimple filter( pPlayer, COLLISION_GROUP_NONE );
+		UTIL_TraceLine( vecStart, pOther->WorldSpaceCenter(), MASK_BLOCKLOS, &filter, &tr );
+		if ( tr.fraction < 1.0f && tr.m_pEnt != pOther )
+			continue;
+
+		if ( flDist < flBest )
+		{
+			flBest = flDist;
+			pBest = pOther;
+		}
+	}
+
+	return pBest;
+}
+
+void CHL2_Player::Survival_UpdateRevive( void )
+{
+	m_HL2Local.m_bReviveHint = false;
+	m_HL2Local.m_flReviveProgress = 0.0f;
+
+	if ( !IsAlive() || Survival_IsDowned() || !sv_survival_downed_enabled.GetBool() )
+	{
+		m_flReviveChannel = 0.0f;
+		m_hReviveTarget = NULL;
+		return;
+	}
+
+	CHL2_Player *pTarget = Survival_FindDownedAlly( this );
+	if ( !pTarget )
+	{
+		m_flReviveChannel = 0.0f;
+		m_hReviveTarget = NULL;
+		return;
+	}
+
+	if ( m_hReviveTarget.Get() != pTarget )
+	{
+		m_flReviveChannel = 0.0f;
+		m_hReviveTarget = pTarget;
+	}
+
+	m_HL2Local.m_bReviveHint = true;
+	if ( !( m_nButtons & IN_USE ) )
+	{
+		m_flReviveChannel = 0.0f;
+		return;
+	}
+
+	float flNeed = sv_survival_revive_time.GetFloat();
+	if ( flNeed < 0.1f )
+		flNeed = 0.1f;
+
+	m_flReviveChannel += gpGlobals->frametime;
+	m_HL2Local.m_flReviveProgress = clamp( m_flReviveChannel / flNeed, 0.0f, 1.0f );
+	if ( m_flReviveChannel < flNeed )
+		return;
+
+	int nHealth = sv_survival_revive_health.GetInt();
+	if ( nHealth < 1 )
+		nHealth = 1;
+	pTarget->m_iHealth = nHealth;
+	pTarget->Survival_ClearDowned();
+	pTarget->RemoveFlag( FL_FROZEN );
+	m_flReviveChannel = 0.0f;
+	m_hReviveTarget = NULL;
+	// Leave the hint set so PlayerUse, later this frame, does not also
+	// toggle whatever is under the body.
+	m_HL2Local.m_bReviveHint = true;
+	m_HL2Local.m_flReviveProgress = 1.0f;
+
+	ClientPrint( pTarget, HUD_PRINTCENTER, "#Survival_Revived" );
+	ClientPrint( this, HUD_PRINTCENTER, "#Survival_YouRevived" );
+}
 
 bool CHL2_Player::SurvivalNeeds_BlocksSprint( void )
 {
@@ -2248,19 +2754,19 @@ bool CHL2_Player::SurvivalInventory_ConsumeType( int nType )
 		bool bApplied = ( nType == SURVIVAL_ITEM_FOOD ) ? ApplyFood( (float)nAmount ) : ApplyWater( (float)nAmount );
 		if ( !bApplied )
 		{
-			ClientPrint( this, HUD_PRINTCENTER, nType == SURVIVAL_ITEM_FOOD ? "Ya no tienes hambre" : "Ya no tienes sed" );
+			ClientPrint( this, HUD_PRINTCENTER, nType == SURVIVAL_ITEM_FOOD ? "#Survival_NotHungry" : "#Survival_NotThirsty" );
 			return false;
 		}
 
 		m_HL2Local.m_nInventorySlot.Set( i, Survival_PackSlot( SURVIVAL_ITEM_EMPTY, 0 ) );
 
-		char szMsg[64];
-		Q_snprintf( szMsg, sizeof( szMsg ), nType == SURVIVAL_ITEM_FOOD ? "Hambre +%d" : "Sed +%d", nAmount );
-		ClientPrint( this, HUD_PRINTCENTER, szMsg );
+		char szAmt[8];
+		Q_snprintf( szAmt, sizeof( szAmt ), "%d", nAmount );
+		ClientPrint( this, HUD_PRINTCENTER, nType == SURVIVAL_ITEM_FOOD ? "#Survival_HungerGain" : "#Survival_ThirstGain", szAmt );
 		return true;
 	}
 
-	ClientPrint( this, HUD_PRINTCENTER, nType == SURVIVAL_ITEM_FOOD ? "No tienes comida" : "No tienes agua" );
+	ClientPrint( this, HUD_PRINTCENTER, nType == SURVIVAL_ITEM_FOOD ? "#Survival_NoFood" : "#Survival_NoWater" );
 	return false;
 }
 
@@ -3239,6 +3745,14 @@ bool CHL2_Player::ClientCommand( const CCommand &args )
 //-----------------------------------------------------------------------------
 void CHL2_Player::PlayerUse ( void )
 {
+	// A downed player cannot loot or revive. A channel already in progress
+	// must not also toggle the prop under the body.
+	if ( Survival_IsDowned() )
+		return;
+
+	if ( m_HL2Local.m_bReviveHint && ( m_nButtons & IN_USE ) )
+		return;
+
 	// Was use pressed or released?
 	if ( ! ((m_nButtons | m_afButtonPressed | m_afButtonReleased) & IN_USE) )
 		return;
@@ -3362,6 +3876,7 @@ void CHL2_Player::PlayerUse ( void )
 	{
 		m_Local.m_nOldButtons |= IN_USE;
 		m_afButtonPressed &= ~IN_USE;
+		Survival_OnUseNoise();
 	}
 }
 

@@ -45,6 +45,30 @@ En Hammer (más adelante): `survival_crate` suelta comida y agua, `survival_bed`
 
 Zombies de prueba (cheat): `survival_spawn_zombie` con `zombie`, `fast`, `poison` o `zombine`.
 
+## Mordida, ruido, días y revivir
+
+El HUD muestra hambre, sed, cansancio, infección y el día compartido (`Día N` más la hora). El día no se reinicia cuando muere un jugador: es el mismo para la partida. Cambia de mapa o `mp_restartgame` lo vuelve al día 1, a las 08:00.
+
+Un golpe de `npc_zombie`, torso, fast, poison o zombine puede infectar (`sv_survival_infect_chance`). La barra sube sola y, al llegar a 100, mata. Mientras tanto resta un poco de vida. Al reaparecer la infección vuelve a 0.
+
+Sprint, disparos, abrir una `survival_crate` y un +use fuerte atraen zombis dentro del radio. De noche (20:00 a 06:00) ese radio se multiplica. No hay un pulso por frame: `sv_survival_noise_cooldown` junta los ruidos.
+
+El primer golpe que dejaría la vida en 0 no mata: el jugador queda herido, se arrastra y no dispara. Un compañero mira al herido y mantiene E unos segundos (`sv_survival_revive_time`) para levantarlo con poca vida. La infección no se cura al revivir. Si nadie llega a tiempo, muere y reaparece con las necesidades en 100. El fuego amigo sigue cortado por `sv_survival_coop` y `mp_friendlyfire 0`.
+
+Con `sv_cheats 1`:
+
+```
+survival_infect
+survival_infect 80
+survival_clear_infection
+survival_down
+survival_noise
+survival_dump
+cl_survival_dump
+```
+
+El menú y el nombre del mod son **Supervivencia Paysandú**. El `hostname` del listen server se queda en ASCII (`Supervivencia Paysandu`) porque la consola del motor no siempre acepta la ú.
+
 ## Mapa de prueba
 
 `mapcycle.txt` empieza por `dm_lockdown` y sigue con mapas de HL2MP que ya vienen en el SDK. El mapa de Paysandú sustituirá a `dm_lockdown` cuando exista.

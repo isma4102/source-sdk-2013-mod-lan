@@ -1,7 +1,7 @@
 "GameInfo"
 {
-	game	"Supervivencia Paysandu"
-	title	"PAYSANDU"
+	game	"Supervivencia Paysandú"
+	title	"PAYSANDÚ"
 	title2	"supervivencia"
 	type multiplayer_only
 	// Small window / Steam list icon. File is resource/icon.tga (32x32, uncompressed, top origin).

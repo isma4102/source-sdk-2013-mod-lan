@@ -103,9 +103,11 @@ BEGIN_NETWORK_TABLE_NOBASE( CHL2MPRules, DT_HL2MPRules )
 	#ifdef CLIENT_DLL
 		RecvPropBool( RECVINFO( m_bTeamPlayEnabled ) ),
 		RecvPropFloat( RECVINFO( m_flSurvivalClock ) ),
+		RecvPropInt( RECVINFO( m_nSurvivalDay ) ),
 	#else
 		SendPropBool( SENDINFO( m_bTeamPlayEnabled ) ),
 		SendPropFloat( SENDINFO( m_flSurvivalClock ), 12, SPROP_ROUNDDOWN, 0.0f, 24.0f ),
+		SendPropInt( SENDINFO( m_nSurvivalDay ), 12, SPROP_UNSIGNED ),
 	#endif
 
 END_NETWORK_TABLE()
@@ -229,6 +231,7 @@ char *sTeamNames[] =
 CHL2MPRules::CHL2MPRules()
 {
 	m_flSurvivalClock = 8.0f;
+	m_nSurvivalDay = 1;
 #ifndef CLIENT_DLL
 	// Create the team managers
 	for ( int i = 0; i < ARRAYSIZE( sTeamNames ); i++ )
@@ -346,9 +349,15 @@ void CHL2MPRules::Think( void )
 	if ( flDayLength > 0.0f )
 	{
 		float flHour = m_flSurvivalClock + gpGlobals->frametime * ( 24.0f / flDayLength );
+		int nDays = 0;
 		while ( flHour >= 24.0f )
+		{
 			flHour -= 24.0f;
+			nDays++;
+		}
 		m_flSurvivalClock = flHour;
+		if ( nDays > 0 )
+			m_nSurvivalDay = (int)m_nSurvivalDay + nDays;
 	}
 
 	if ( g_fGameOver )   // someone else quit the game already
@@ -918,11 +927,16 @@ void CHL2MPRules::Survival_Sleep( CBasePlayer *pPlayer )
 	float flHour = m_flSurvivalClock;
 	bool bNight = ( flHour >= 20.0f || flHour < 7.0f );
 	if ( bNight )
+	{
+		// Sleeping through the evening crosses into the next shared day.
+		if ( flHour >= 20.0f )
+			m_nSurvivalDay = (int)m_nSurvivalDay + 1;
 		m_flSurvivalClock = 7.0f;
+	}
 
 	color32 black = { 0, 0, 0, 255 };
 	UTIL_ScreenFade( pHL2, black, 1.0f, 0.6f, FFADE_IN );
-	ClientPrint( pHL2, HUD_PRINTCENTER, bNight ? "Duermes hasta el amanecer." : "Descansas un rato." );
+	ClientPrint( pHL2, HUD_PRINTCENTER, bNight ? "#Survival_SleepDawn" : "#Survival_SleepRest" );
 }
 
 bool CHL2MPRules::IsAllowedToSpawn( CBaseEntity *pEntity )
@@ -956,7 +970,7 @@ bool CHL2MPRules::FPlayerCanTakeDamage( CBasePlayer *pPlayer, CBaseEntity *pAtta
 const char *CHL2MPRules::GetGameDescription( void )
 { 
 	if ( sv_survival_coop.GetBool() )
-		return "Paysandu Survival";
+		return "Supervivencia Paysandu";
 
 	if ( IsTeamplay() )
 		return "Team Deathmatch"; 
@@ -1135,6 +1149,9 @@ void CHL2MPRules::RestartGame()
 	}
 
 	CleanUpMap();
+
+	m_flSurvivalClock = 8.0f;
+	m_nSurvivalDay = 1;
 	
 	// now respawn all players
 	for (int i = 1; i <= gpGlobals->maxClients; i++ )

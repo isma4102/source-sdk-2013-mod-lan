@@ -26,7 +26,7 @@ protected:
 	virtual void Paint();
 
 private:
-	void DrawNeed( int y, const wchar_t *wszLabel, float flValue, Color col );
+	void DrawNeed( int y, const wchar_t *wszLabel, float flValue, Color col, bool bLowIsDanger );
 
 	vgui::HFont m_hFont;
 };

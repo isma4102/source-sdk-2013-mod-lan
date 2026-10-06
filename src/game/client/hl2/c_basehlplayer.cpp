@@ -85,10 +85,12 @@ static void CC_CL_SurvivalDump( const CCommand & )
 		return;
 	}
 
-	Msg( "cl_survival_dump: hunger %.2f thirst %.2f stamina %.2f\n",
+	Msg( "cl_survival_dump: hunger %.2f thirst %.2f stamina %.2f infection %.2f downed %d\n",
 		pPlayer->m_HL2Local.m_flHunger,
 		pPlayer->m_HL2Local.m_flThirst,
-		pPlayer->m_HL2Local.m_flStamina );
+		pPlayer->m_HL2Local.m_flStamina,
+		pPlayer->m_HL2Local.m_flInfection,
+		pPlayer->m_HL2Local.m_bSurvivalDowned ? 1 : 0 );
 }
 
 static ConCommand cl_survival_dump( "cl_survival_dump", CC_CL_SurvivalDump, "Print the local player's replicated survival needs (hunger, thirst, stamina)." );

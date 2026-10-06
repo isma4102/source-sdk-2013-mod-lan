@@ -386,11 +386,24 @@ void CHL2MPClientScoreBoardDialog::UpdateTeamInfo()
 			if ( HL2MPRules()->IsTeamplay() == false )
 			{
 				_snwprintf( wNumPlayers, ARRAYSIZE(wNumPlayers), L"%i", iNumPlayersInGame );
+				static ConVarRef sv_survival_coop( "sv_survival_coop", true );
+				if ( !sv_survival_coop.IsValid() )
+					sv_survival_coop.Init( "sv_survival_coop", true );
+				const wchar_t *pScoreFmt = ( sv_survival_coop.IsValid() && sv_survival_coop.GetBool() ) ? g_pVGuiLocalize->Find( "#Survival_Scoreboard" ) : NULL;
+				if ( pScoreFmt && HL2MPRules() )
+				{
+					wchar_t wDay[8];
+					_snwprintf( wDay, ARRAYSIZE( wDay ), L"%d", HL2MPRules()->Survival_GetDay() );
+					g_pVGuiLocalize->ConstructString( name, sizeof( name ), pScoreFmt, 1, wDay );
+				}
+				else
+				{
 #ifdef WIN32
-				_snwprintf( name, ARRAYSIZE(name), L"%s", g_pVGuiLocalize->Find("#ScoreBoard_Deathmatch") );
+					_snwprintf( name, ARRAYSIZE(name), L"%s", g_pVGuiLocalize->Find("#ScoreBoard_Deathmatch") );
 #else
-				_snwprintf( name, ARRAYSIZE(name), L"%S", g_pVGuiLocalize->Find("#ScoreBoard_Deathmatch") );
+					_snwprintf( name, ARRAYSIZE(name), L"%S", g_pVGuiLocalize->Find("#ScoreBoard_Deathmatch") );
 #endif
+				}
 				
 				teamName = name;
 

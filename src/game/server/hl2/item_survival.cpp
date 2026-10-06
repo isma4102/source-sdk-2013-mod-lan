@@ -7,6 +7,8 @@
 #include "cbase.h"
 #include "items.h"
 #include "hl2_player.h"
+
+extern ConVar sv_survival_noise_radius_crate;
 #include "engine/IEngineSound.h"
 #ifdef HL2MP
 #include "hl2mp_gamerules.h"
@@ -53,7 +55,7 @@ bool CItemSurvivalConsumable::TryPickup( CBaseEntity *pActivator, bool bFood )
 
 	if ( !pPlayer->SurvivalInventory_Add( bFood ? SURVIVAL_ITEM_FOOD : SURVIVAL_ITEM_WATER, nAmount ) )
 	{
-		ClientPrint( pPlayer, HUD_PRINTCENTER, "Mochila llena" );
+		ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_BackpackFull" );
 		return false;
 	}
 
@@ -61,7 +63,7 @@ bool CItemSurvivalConsumable::TryPickup( CBaseEntity *pActivator, bool bFood )
 	CPASAttenuationFilter filter( pPlayer, pszSound );
 	EmitSound( filter, pPlayer->entindex(), pszSound );
 
-	ClientPrint( pPlayer, HUD_PRINTCENTER, bFood ? "Comida guardada" : "Agua guardada" );
+	ClientPrint( pPlayer, HUD_PRINTCENTER, bFood ? "#Survival_FoodStored" : "#Survival_WaterStored" );
 	UTIL_Remove( this );
 	return true;
 }
@@ -179,9 +181,11 @@ void CSurvivalCrate::Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYP
 	if ( !pPlayer || !pPlayer->IsAlive() )
 		return;
 
+	Survival_EmitNoise( GetAbsOrigin(), sv_survival_noise_radius_crate.GetFloat(), pPlayer );
+
 	if ( m_nFoodCount <= 0 && m_nWaterCount <= 0 )
 	{
-		ClientPrint( pPlayer, HUD_PRINTCENTER, "Vacio" );
+		ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_CrateEmpty" );
 		return;
 	}
 
@@ -206,7 +210,7 @@ void CSurvivalCrate::Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYP
 
 	if ( !bTook )
 	{
-		ClientPrint( pPlayer, HUD_PRINTCENTER, "Mochila llena" );
+		ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_BackpackFull" );
 		return;
 	}
 
@@ -214,9 +218,9 @@ void CSurvivalCrate::Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYP
 	EmitSound( filter, pPlayer->entindex(), "ItemBattery.Touch" );
 
 	if ( m_nFoodCount <= 0 && m_nWaterCount <= 0 )
-		ClientPrint( pPlayer, HUD_PRINTCENTER, "Caja vaciada" );
+		ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_CrateCleared" );
 	else
-		ClientPrint( pPlayer, HUD_PRINTCENTER, "Recoges parte del contenido" );
+		ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_CratePartial" );
 }
 
 #ifdef HL2MP

@@ -142,7 +142,23 @@ public:
 	float SurvivalNeeds_GetHunger( void ) { return m_HL2Local.m_flHunger; }
 	float SurvivalNeeds_GetThirst( void ) { return m_HL2Local.m_flThirst; }
 	float SurvivalNeeds_GetStamina( void ) { return m_HL2Local.m_flStamina; }
+	float Survival_GetInfection( void ) const { return m_HL2Local.m_flInfection; }
 	bool SurvivalNeeds_SetByName( const char *pszNeed, float flValue );
+	bool Survival_IsDowned( void ) const { return m_HL2Local.m_bSurvivalDowned; }
+	bool Survival_WantsRealDeath( void ) const { return m_bSurvivalForceDeath; }
+	void Survival_SetRealDeath( bool bRealDeath ) { m_bSurvivalForceDeath = bRealDeath; }
+	void Survival_SetInfection( float flValue );
+	void Survival_ClearInfection( void );
+	void Survival_EnterDowned( void );
+	void Survival_ClearDowned( void );
+	void Survival_TryInfect( const CTakeDamageInfo &info );
+	void Survival_UpdateInfection( void );
+	void Survival_UpdateDowned( void );
+	void Survival_UpdateRevive( void );
+	void Survival_SuppressDownedInput( void );
+	void Survival_OnSprintNoise( void );
+	void Survival_OnUseNoise( void );
+	void Survival_ApplyDownedMove( CMoveData *mv );
 	bool ApplyFood( float flAmount );
 	bool ApplyWater( float flAmount );
 	void SurvivalInventory_Clear( void );
@@ -369,6 +385,10 @@ private:
 
 	float				m_flTimeUseSuspended;
 	float				m_flNextSurvivalDamageTime;
+	float				m_flNextInfectionDamageTime;
+	float				m_flReviveChannel;
+	EHANDLE				m_hReviveTarget;
+	bool				m_bSurvivalForceDeath;
 
 	CSimpleSimTimer		m_LowerWeaponTimer;
 	CSimpleSimTimer		m_AutoaimTimer;
@@ -381,6 +401,9 @@ private:
 	
 	friend class CHL2GameMovement;
 };
+
+// Wake zombies inside flRadius. Coalesced by sv_survival_noise_cooldown.
+void Survival_EmitNoise( const Vector &vecOrigin, float flRadius, CBaseEntity *pOwner );
 
 
 //-----------------------------------------------------------------------------

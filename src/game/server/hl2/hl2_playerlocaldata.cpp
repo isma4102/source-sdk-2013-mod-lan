@@ -24,6 +24,11 @@ BEGIN_SEND_TABLE_NOBASE( CHL2PlayerLocalData, DT_HL2Local )
 	SendPropFloat( SENDINFO(m_flHunger), -1, SPROP_NOSCALE, 0.0, 100.0 ),
 	SendPropFloat( SENDINFO(m_flThirst), -1, SPROP_NOSCALE, 0.0, 100.0 ),
 	SendPropFloat( SENDINFO(m_flStamina), -1, SPROP_NOSCALE, 0.0, 100.0 ),
+	SendPropFloat( SENDINFO(m_flInfection), -1, SPROP_NOSCALE, 0.0, 100.0 ),
+	SendPropInt( SENDINFO(m_bSurvivalDowned), 1, SPROP_UNSIGNED ),
+	SendPropFloat( SENDINFO(m_flDownedEnds), -1, SPROP_NOSCALE ),
+	SendPropInt( SENDINFO(m_bReviveHint), 1, SPROP_UNSIGNED ),
+	SendPropFloat( SENDINFO(m_flReviveProgress), 8, 0, 0.0f, 1.0f ),
 	SendPropArray3( SENDINFO_ARRAY3(m_nInventorySlot), SendPropInt( SENDINFO_ARRAY(m_nInventorySlot), 16, SPROP_UNSIGNED ) ),
 	SendPropFloat( SENDINFO(m_flTimeAllSuitDevicesOff), -1, SPROP_NOSCALE ),
 	SendPropInt( SENDINFO(m_bNewSprinting), 1, SPROP_UNSIGNED ),
@@ -52,6 +57,11 @@ BEGIN_SIMPLE_DATADESC( CHL2PlayerLocalData )
 	DEFINE_FIELD( m_flHunger, FIELD_FLOAT ),
 	DEFINE_FIELD( m_flThirst, FIELD_FLOAT ),
 	DEFINE_FIELD( m_flStamina, FIELD_FLOAT ),
+	DEFINE_FIELD( m_flInfection, FIELD_FLOAT ),
+	DEFINE_FIELD( m_bSurvivalDowned, FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_flDownedEnds, FIELD_TIME ),
+	DEFINE_FIELD( m_bReviveHint, FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_flReviveProgress, FIELD_FLOAT ),
 	DEFINE_FIELD( m_flTimeAllSuitDevicesOff, FIELD_FLOAT ),
 	DEFINE_FIELD( m_bZooming, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_bNewSprinting, FIELD_BOOLEAN ),
@@ -78,6 +88,11 @@ CHL2PlayerLocalData::CHL2PlayerLocalData()
 	m_flHunger = 100.0f;
 	m_flThirst = 100.0f;
 	m_flStamina = 100.0f;
+	m_flInfection = 0.0f;
+	m_bSurvivalDowned = false;
+	m_flDownedEnds = 0.0f;
+	m_bReviveHint = false;
+	m_flReviveProgress = 0.0f;
 	m_flTimeAllSuitDevicesOff = 0.0f;
 	m_bZooming = false;
 	m_bNewSprinting = false;
