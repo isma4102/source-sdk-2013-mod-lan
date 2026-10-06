@@ -643,13 +643,7 @@ void CHL2MP_Player::OnMyWeaponFired( CBaseCombatWeapon* weapon )
 
 	TheNextBots().OnWeaponFired( this, weapon );
 
-	if ( Survival_IsDowned() || !IsAlive() )
-		return;
-
-	float flRadius = sv_survival_noise_radius_gun.GetFloat();
-	if ( weapon && weapon->IsMeleeWeapon() )
-		flRadius = sv_survival_noise_radius_use.GetFloat();
-	Survival_EmitNoise( GetAbsOrigin(), flRadius, this );
+	Survival_OnWeaponNoise( weapon );
 }
 
 void CHL2MP_Player::NoteWeaponFired( void )
@@ -1207,8 +1201,6 @@ int CHL2MP_Player::FlashlightIsOn( void )
 
 extern ConVar flashlight;
 extern ConVar sv_survival_downed_enabled;
-extern ConVar sv_survival_noise_radius_gun;
-extern ConVar sv_survival_noise_radius_use;
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------

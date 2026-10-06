@@ -158,6 +158,7 @@ public:
 	void Survival_SuppressDownedInput( void );
 	void Survival_OnSprintNoise( void );
 	void Survival_OnUseNoise( void );
+	void Survival_OnWeaponNoise( CBaseCombatWeapon *pWeapon );
 	void Survival_ApplyDownedMove( CMoveData *mv );
 	bool ApplyFood( float flAmount );
 	bool ApplyWater( float flAmount );

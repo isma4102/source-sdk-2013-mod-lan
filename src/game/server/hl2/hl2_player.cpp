@@ -2345,6 +2345,18 @@ void CHL2_Player::Survival_OnUseNoise( void )
 	Survival_EmitNoise( GetAbsOrigin(), sv_survival_noise_radius_use.GetFloat(), this );
 }
 
+void CHL2_Player::Survival_OnWeaponNoise( CBaseCombatWeapon *pWeapon )
+{
+	if ( Survival_IsDowned() || !IsAlive() )
+		return;
+
+	float flRadius = sv_survival_noise_radius_gun.GetFloat();
+	if ( pWeapon && pWeapon->IsMeleeWeapon() )
+		flRadius = sv_survival_noise_radius_use.GetFloat();
+
+	Survival_EmitNoise( GetAbsOrigin(), flRadius, this );
+}
+
 void CHL2_Player::Survival_ApplyDownedMove( CMoveData *mv )
 {
 	float flSpeed = sv_survival_downed_speed.GetFloat();
