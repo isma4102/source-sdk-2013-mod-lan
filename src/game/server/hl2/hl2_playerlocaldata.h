@@ -30,6 +30,12 @@ public:
 
 	CNetworkVar( float, m_flSuitPower );
 	CNetworkVar( float, m_flSuitPowerLoad );
+
+	// Survival needs. 100 = fine, 0 = empty. Not suit power.
+	CNetworkVar( float, m_flHunger );
+	CNetworkVar( float, m_flThirst );
+	CNetworkVar( float, m_flStamina );
+
 	CNetworkVar( float, m_flTimeAllSuitDevicesOff );
 	CNetworkVar( bool,  m_bNewSprinting );
 	CNetworkVar( bool,	m_bZooming );

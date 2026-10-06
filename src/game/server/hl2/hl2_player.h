@@ -132,6 +132,14 @@ public:
 	void SuitPower_Charge( float flPower ); // add suit power.
 	void SuitPower_SetCharge( float flPower ) { m_HL2Local.m_flSuitPower = flPower; }
 	void SuitPower_Initialize( void );
+
+	// Survival needs (hunger / thirst / stamina). Range 0-100, 100 = fine.
+	// Stored in m_HL2Local, which is private, so console commands go through these.
+	void SurvivalNeeds_Reset( void );
+	float SurvivalNeeds_GetHunger( void ) { return m_HL2Local.m_flHunger; }
+	float SurvivalNeeds_GetThirst( void ) { return m_HL2Local.m_flThirst; }
+	float SurvivalNeeds_GetStamina( void ) { return m_HL2Local.m_flStamina; }
+	bool SurvivalNeeds_SetByName( const char *pszNeed, float flValue );
 	bool SuitPower_IsDeviceActive( const CSuitPowerDevice &device );
 	bool SuitPower_AddDevice( const CSuitPowerDevice &device );
 	bool SuitPower_RemoveDevice( const CSuitPowerDevice &device );

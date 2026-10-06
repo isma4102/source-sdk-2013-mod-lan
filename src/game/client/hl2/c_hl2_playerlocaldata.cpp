@@ -14,6 +14,9 @@
 BEGIN_RECV_TABLE_NOBASE( C_HL2PlayerLocalData, DT_HL2Local )
 	RecvPropFloat( RECVINFO(m_flSuitPower) ),
 	RecvPropFloat( RECVINFO(m_flSuitPowerLoad) ),
+	RecvPropFloat( RECVINFO(m_flHunger) ),
+	RecvPropFloat( RECVINFO(m_flThirst) ),
+	RecvPropFloat( RECVINFO(m_flStamina) ),
 	RecvPropFloat( RECVINFO(m_flTimeAllSuitDevicesOff) ),
 	RecvPropInt( RECVINFO(m_bNewSprinting) ),
 	RecvPropInt( RECVINFO(m_bZooming) ),
@@ -40,6 +43,8 @@ BEGIN_PREDICTION_DATA_NO_BASE( C_HL2PlayerLocalData )
 	DEFINE_PRED_FIELD( m_hLadder, FIELD_EHANDLE, FTYPEDESC_INSENDTABLE ), 
 	DEFINE_PRED_FIELD( m_flSuitPower, FIELD_FLOAT, FTYPEDESC_INSENDTABLE ),
 	DEFINE_PRED_FIELD( m_flSuitPowerLoad, FIELD_FLOAT, FTYPEDESC_INSENDTABLE ),
+	// m_flHunger / m_flThirst / m_flStamina are server-authoritative.
+	// Leave them out of the prediction data until the client actually writes them.
 	DEFINE_PRED_FIELD( m_flTimeAllSuitDevicesOff, FIELD_FLOAT, FTYPEDESC_INSENDTABLE ),
 	DEFINE_PRED_FIELD( m_bNewSprinting, FIELD_BOOLEAN, FTYPEDESC_INSENDTABLE ),
 	DEFINE_PRED_FIELD( m_bitsActiveDevices, FIELD_INTEGER, FTYPEDESC_INSENDTABLE ),
@@ -51,6 +56,9 @@ C_HL2PlayerLocalData::C_HL2PlayerLocalData()
 {
 	m_flSuitPower = 0.0;
 	m_flSuitPowerLoad = 0.0f;
+	m_flHunger = 100.0f;
+	m_flThirst = 100.0f;
+	m_flStamina = 100.0f;
 	m_flTimeAllSuitDevicesOff = 0.0f;
 	m_bZooming = false;
 	m_bNewSprinting = false;
