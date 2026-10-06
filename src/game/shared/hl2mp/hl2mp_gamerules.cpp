@@ -33,6 +33,7 @@
 	#include "voice_gamemgr.h"
 	#include "hl2mp_gameinterface.h"
 	#include "hl2mp_cvars.h"
+	#include "takedamageinfo.h"
 
 extern void respawn(CBaseEntity *pEdict, bool fCopyCorpse);
 
@@ -836,6 +837,7 @@ int CHL2MPRules::PlayerRelationship( CBaseEntity *pPlayer, CBaseEntity *pTarget 
 	return GR_NOTTEAMMATE;
 }
 
+#ifndef CLIENT_DLL
 bool CHL2MPRules::FPlayerCanTakeDamage( CBasePlayer *pPlayer, CBaseEntity *pAttacker, const CTakeDamageInfo &info )
 {
 	if ( sv_survival_coop.GetBool() && pPlayer && pAttacker && pAttacker != pPlayer && !info.IsForceFriendlyFire() )
@@ -854,6 +856,7 @@ bool CHL2MPRules::FPlayerCanTakeDamage( CBasePlayer *pPlayer, CBaseEntity *pAtta
 
 	return BaseClass::FPlayerCanTakeDamage( pPlayer, pAttacker, info );
 }
+#endif
 
 const char *CHL2MPRules::GetGameDescription( void )
 { 
