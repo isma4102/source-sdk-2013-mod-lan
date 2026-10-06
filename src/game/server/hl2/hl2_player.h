@@ -142,6 +142,8 @@ public:
 	float SurvivalNeeds_GetThirst( void ) { return m_HL2Local.m_flThirst; }
 	float SurvivalNeeds_GetStamina( void ) { return m_HL2Local.m_flStamina; }
 	bool SurvivalNeeds_SetByName( const char *pszNeed, float flValue );
+	bool ApplyFood( float flAmount );
+	bool ApplyWater( float flAmount );
 	bool SuitPower_IsDeviceActive( const CSuitPowerDevice &device );
 	bool SuitPower_AddDevice( const CSuitPowerDevice &device );
 	bool SuitPower_RemoveDevice( const CSuitPowerDevice &device );
