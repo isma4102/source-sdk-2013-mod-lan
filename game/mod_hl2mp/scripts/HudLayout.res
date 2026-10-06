@@ -208,6 +208,17 @@
 		"digit_ypos" "0"
 	}
 	
+	HudSurvival
+	{
+		"fieldName" "HudSurvival"
+		"visible" "1"
+		"enabled" "1"
+		"xpos"	"16"
+		"ypos"	"312"
+		"wide"	"168"
+		"tall"	"54"
+	}
+
 	HudSuitPower [!$DECK]
 	{
 		"fieldName" "HudSuitPower"
