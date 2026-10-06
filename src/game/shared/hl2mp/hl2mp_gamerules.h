@@ -115,6 +115,10 @@ public:
 	virtual void GoToIntermission( void );
 	virtual void DeathNotice( CBasePlayer *pVictim, const CTakeDamageInfo &info );
 	virtual const char *GetGameDescription( void );
+	float Survival_GetHour( void ) const { return m_flSurvivalClock; }
+#ifndef CLIENT_DLL
+	void Survival_Sleep( CBasePlayer *pPlayer );
+#endif
 	// derive this function if you mod uses encrypted weapon info files
 	virtual const unsigned char *GetEncryptionKey( void ) { return (unsigned char *)"x9Ke0BY7"; }
 	virtual const CViewVectors* GetViewVectors() const;
@@ -161,6 +165,7 @@ private:
 	
 	CNetworkVar( bool, m_bTeamPlayEnabled );
 	CNetworkVar( float, m_flGameStartTime );
+	CNetworkVar( float, m_flSurvivalClock );
 	CUtlVector<EHANDLE> m_hRespawnableItemsAndWeapons;
 	float m_tmNextPeriodicThink;
 	float m_flRestartGameTime;

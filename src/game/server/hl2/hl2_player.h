@@ -136,6 +136,7 @@ public:
 	// Survival needs (hunger / thirst / stamina). Range 0-100, 100 = fine.
 	// Stored in m_HL2Local, which is private, so console commands go through these.
 	void SurvivalNeeds_Reset( void );
+	void Survival_Rest( void );
 	void SurvivalNeeds_Update( void );
 	bool SurvivalNeeds_BlocksSprint( void );
 	float SurvivalNeeds_GetHunger( void ) { return m_HL2Local.m_flHunger; }

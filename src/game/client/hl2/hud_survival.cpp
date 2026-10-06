@@ -10,6 +10,9 @@
 #include "c_basehlplayer.h"
 #include "iclientmode.h"
 #include "hl2/survival_inventory.h"
+#ifdef HL2MP
+#include "hl2mp_gamerules.h"
+#endif
 #include <vgui/ISurface.h>
 #include <vgui/IScheme.h>
 
@@ -122,4 +125,85 @@ void CHudSurvival::Paint()
 	surface()->DrawSetTextColor( Color( 230, 230, 230, 255 ) );
 	surface()->DrawSetTextPos( 0, nRowH * 3 );
 	surface()->DrawPrintText( wszInv, wcslen( wszInv ) );
+
+#ifdef HL2MP
+	if ( HL2MPRules() )
+	{
+		float flHour = clamp( HL2MPRules()->Survival_GetHour(), 0.0f, 23.999f );
+		int nHour = (int)flHour;
+		int nMinute = (int)( ( flHour - nHour ) * 60.0f );
+		if ( nMinute > 59 )
+			nMinute = 59;
+
+		wchar_t wszClock[16];
+		V_snwprintf( wszClock, ARRAYSIZE( wszClock ), L"%02d:%02d", nHour, nMinute );
+		surface()->DrawSetTextColor( Color( 230, 220, 160, 255 ) );
+		surface()->DrawSetTextPos( 0, nRowH * 3 + nInvH );
+		surface()->DrawPrintText( wszClock, wcslen( wszClock ) );
+	}
+#endif
 }
+
+#ifdef HL2MP
+static float Survival_NightAlpha( float flHour )
+{
+	if ( flHour >= 8.0f && flHour < 18.0f )
+		return 0.0f;
+	if ( flHour >= 20.0f || flHour < 6.0f )
+		return 120.0f;
+	if ( flHour >= 18.0f )
+		return 120.0f * ( flHour - 18.0f ) / 2.0f;
+	return 120.0f * ( 8.0f - flHour ) / 2.0f;
+}
+
+class CHudSurvivalNight : public CHudElement, public vgui::Panel
+{
+	DECLARE_CLASS_SIMPLE( CHudSurvivalNight, vgui::Panel );
+
+public:
+	CHudSurvivalNight( const char *pElementName ) : CHudElement( pElementName ), BaseClass( NULL, "HudSurvivalNight" )
+	{
+		vgui::Panel *pParent = g_pClientMode->GetViewport();
+		SetParent( pParent );
+		SetHiddenBits( HIDEHUD_PLAYERDEAD );
+		SetMouseInputEnabled( false );
+		SetKeyBoardInputEnabled( false );
+		SetPaintBackgroundEnabled( false );
+		SetZPos( -100 );
+		SetSize( ScreenWidth(), ScreenHeight() );
+	}
+
+	virtual void ApplySchemeSettings( vgui::IScheme *pScheme )
+	{
+		BaseClass::ApplySchemeSettings( pScheme );
+		SetPaintBackgroundEnabled( false );
+		SetSize( ScreenWidth(), ScreenHeight() );
+	}
+
+	virtual bool ShouldDraw( void )
+	{
+		C_BasePlayer *pPlayer = C_BasePlayer::GetLocalPlayer();
+		if ( !pPlayer || !pPlayer->IsAlive() || !HL2MPRules() )
+			return false;
+		if ( Survival_NightAlpha( HL2MPRules()->Survival_GetHour() ) < 1.0f )
+			return false;
+		return CHudElement::ShouldDraw();
+	}
+
+protected:
+	virtual void Paint()
+	{
+		if ( !HL2MPRules() )
+			return;
+
+		int nAlpha = (int)Survival_NightAlpha( HL2MPRules()->Survival_GetHour() );
+		if ( nAlpha < 1 )
+			return;
+
+		surface()->DrawSetColor( 0, 0, 0, nAlpha );
+		surface()->DrawFilledRect( 0, 0, GetWide(), GetTall() );
+	}
+};
+
+DECLARE_HUDELEMENT_DEPTH( CHudSurvivalNight, 5 );
+#endif
