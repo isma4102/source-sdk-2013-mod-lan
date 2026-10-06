@@ -1326,10 +1326,16 @@ static const char *Survival_ResolveZombieClass( const char *pszArg )
 		return "npc_headcrab_fast";
 	if ( !Q_stricmp( pszArg, "poisoncrab" ) || !Q_stricmp( pszArg, "npc_headcrab_black" ) || !Q_stricmp( pszArg, "npc_headcrab_poison" ) )
 		return "npc_headcrab_black";
+	if ( !Q_stricmp( pszArg, "fast" ) || !Q_stricmp( pszArg, "npc_fastzombie" ) )
+		return "npc_fastzombie";
+	if ( !Q_stricmp( pszArg, "poison" ) || !Q_stricmp( pszArg, "npc_poisonzombie" ) )
+		return "npc_poisonzombie";
+	if ( !Q_stricmp( pszArg, "zombine" ) || !Q_stricmp( pszArg, "npc_zombine" ) )
+		return "npc_zombine";
 	return NULL;
 }
 
-CON_COMMAND_F( survival_spawn_zombie, "Spawn a zombie in front of you. Optional: zombie, torso, headcrab, fastcrab, poisoncrab.", FCVAR_CHEAT )
+CON_COMMAND_F( survival_spawn_zombie, "Spawn a zombie in front of you. Optional: zombie, fast, poison, zombine, torso, headcrab, fastcrab, poisoncrab.", FCVAR_CHEAT )
 {
 	if ( !UTIL_IsCommandIssuedByServerAdmin() )
 		return;
@@ -1341,7 +1347,7 @@ CON_COMMAND_F( survival_spawn_zombie, "Spawn a zombie in front of you. Optional:
 	const char *pszClass = Survival_ResolveZombieClass( args.ArgC() >= 2 ? args[1] : "zombie" );
 	if ( !pszClass )
 	{
-		ClientPrint( pPlayer, HUD_PRINTCONSOLE, "survival_spawn_zombie: use zombie, torso, headcrab, fastcrab or poisoncrab.\n" );
+		ClientPrint( pPlayer, HUD_PRINTCONSOLE, "survival_spawn_zombie: use zombie, fast, poison, zombine, torso, headcrab, fastcrab or poisoncrab.\n" );
 		return;
 	}
 

@@ -27,7 +27,9 @@
 #include "props.h"
 #include "physics_npc_solver.h"
 #include "hl2_player.h"
+#ifndef HL2MP
 #include "hl2_gamerules.h"
+#endif
 
 #include "basecombatweapon.h"
 #include "basegrenade_shared.h"
@@ -614,10 +616,13 @@ bool CNPC_Zombine::AllowedToSprint( void )
 
 	if ( pPlayer )
 	{
+#ifndef HL2MP
+		// HL2MP gamerules are not CHalfLife2. Skip the Alyx darkness bonus there.
 		if ( HL2GameRules()->IsAlyxInDarknessMode() && pPlayer->FlashlightIsOn() == false )
 		{
 			iChance = SPRINT_CHANCE_VALUE_DARKNESS;
 		}
+#endif
 
 		//Bigger chance of this happening if the player is not looking at the zombie
 		if ( pPlayer->FInViewCone( this ) == false )
