@@ -185,10 +185,10 @@ int ACT_HEADCRAB_CEILING_LAND;
 //-----------------------------------------------------------------------------
 // Skill settings.
 //-----------------------------------------------------------------------------
-ConVar	sk_headcrab_health( "sk_headcrab_health","0");
-ConVar	sk_headcrab_fast_health( "sk_headcrab_fast_health","0");
-ConVar	sk_headcrab_poison_health( "sk_headcrab_poison_health","0");
-ConVar	sk_headcrab_melee_dmg( "sk_headcrab_melee_dmg","0");
+ConVar	sk_headcrab_health( "sk_headcrab_health", "24", FCVAR_NOTIFY, "Health of npc_headcrab and npc_headcrab_fast." );
+ConVar	sk_headcrab_fast_health( "sk_headcrab_fast_health", "24", FCVAR_NOTIFY, "Unused by the fast headcrab spawn path; kept so skill.cfg can still set it." );
+ConVar	sk_headcrab_poison_health( "sk_headcrab_poison_health", "40", FCVAR_NOTIFY, "Health of npc_headcrab_black." );
+ConVar	sk_headcrab_melee_dmg( "sk_headcrab_melee_dmg", "5", FCVAR_NOTIFY, "Headcrab bite damage." );
 ConVar	sk_headcrab_poison_npc_damage( "sk_headcrab_poison_npc_damage", "0" );
 
 BEGIN_DATADESC( CBaseHeadcrab )

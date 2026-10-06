@@ -24,7 +24,7 @@
 // ACT_FLINCH_PHYSICS
 
 
-ConVar	sk_zombie_health( "sk_zombie_health","0");
+ConVar	sk_zombie_health( "sk_zombie_health", "80", FCVAR_NOTIFY, "Health of npc_zombie. A pistol bullet does 8 damage; headshots double it." );
 
 envelopePoint_t envZombieMoanVolumeFast[] =
 {

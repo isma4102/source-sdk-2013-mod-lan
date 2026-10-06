@@ -35,6 +35,7 @@
 	#include "hl2mp_cvars.h"
 	#include "takedamageinfo.h"
 	#include "hl2/survival_arsenal.h"
+	#include "ai_basenpc.h"
 
 extern void respawn(CBaseEntity *pEdict, bool fCopyCorpse);
 
@@ -1426,6 +1427,76 @@ const char *CHL2MPRules::GetChatFormat( bool bTeamOnly, CBasePlayer *pPlayer )
 	return pszFormat;
 }
 
+void CHL2MPRules::InitDefaultAIRelationships( void )
+{
+	// CHalfLife2 owns the full matrix, but this mod's rules are CHL2MPRules.
+	// worldspawn still calls InitDefaultAIRelationships, and the base
+	// implementation does nothing. The matrix was never filled, so a zombie
+	// never got D_HT toward CLASS_PLAYER. NPCs only acquire enemies they hate
+	// or fear, so they moaned and turned in place without a chase schedule.
+	CBaseCombatCharacter::AllocateDefaultRelationships();
+
+	for ( int i = 0; i < NUM_AI_CLASSES; i++ )
+	{
+		for ( int j = 0; j < NUM_AI_CLASSES; j++ )
+			CBaseCombatCharacter::SetDefaultRelationship( (Class_T)i, (Class_T)j, D_NU, 0 );
+	}
+
+	const Class_T hunters[] =
+	{
+		CLASS_ZOMBIE,
+		CLASS_HEADCRAB,
+	};
+
+	const Class_T prey[] =
+	{
+		CLASS_PLAYER,
+		CLASS_PLAYER_ALLY,
+		CLASS_PLAYER_ALLY_VITAL,
+		CLASS_CITIZEN_PASSIVE,
+		CLASS_CITIZEN_REBEL,
+		CLASS_COMBINE,
+		CLASS_METROPOLICE,
+		CLASS_MILITARY,
+		CLASS_VORTIGAUNT,
+	};
+
+	for ( int h = 0; h < ARRAYSIZE( hunters ); h++ )
+	{
+		for ( int p = 0; p < ARRAYSIZE( prey ); p++ )
+			CBaseCombatCharacter::SetDefaultRelationship( hunters[h], prey[p], D_HT, 0 );
+	}
+
+	CBaseCombatCharacter::SetDefaultRelationship( CLASS_PLAYER, CLASS_ZOMBIE, D_HT, 0 );
+	CBaseCombatCharacter::SetDefaultRelationship( CLASS_PLAYER, CLASS_HEADCRAB, D_HT, 0 );
+}
+
+static void Survival_PrimeZombie( CBaseEntity *pNPC, CBasePlayer *pPlayer )
+{
+	CAI_BaseNPC *pAI = pNPC ? pNPC->MyNPCPointer() : NULL;
+	if ( !pAI )
+		return;
+
+	// Console spawns used to come up before the first look tick. Point them
+	// at every living player so the chase starts on the next think.
+	pAI->RemoveFlag( FL_FLY | FL_FROZEN );
+	pAI->SetMoveType( MOVETYPE_STEP );
+	pAI->Wake();
+
+	for ( int i = 1; i <= gpGlobals->maxClients; i++ )
+	{
+		CBasePlayer *pOther = UTIL_PlayerByIndex( i );
+		if ( !pOther || !pOther->IsAlive() )
+			continue;
+
+		pAI->AddEntityRelationship( pOther, D_HT, 100 );
+		pAI->UpdateEnemyMemory( pOther, pOther->GetAbsOrigin() );
+	}
+
+	if ( pPlayer && pPlayer->IsAlive() )
+		pAI->SetEnemy( pPlayer );
+}
+
 static const char *Survival_ResolveZombieClass( const char *pszArg )
 {
 	if ( !pszArg || !pszArg[0] || !Q_stricmp( pszArg, "zombie" ) || !Q_stricmp( pszArg, "npc_zombie" ) )
@@ -1489,7 +1560,9 @@ CON_COMMAND_F( survival_spawn_zombie, "Spawn a zombie in front of you. Optional:
 
 	pNPC->Teleport( &vecOrigin, &angSpawn, &vec3_origin );
 	UTIL_DropToFloor( pNPC, MASK_NPCSOLID );
+	pNPC->SetParent( NULL );
 	pNPC->Activate();
+	Survival_PrimeZombie( pNPC, pPlayer );
 
 	CBaseEntity::SetAllowPrecache( bAllowPrecache );
 

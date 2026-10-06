@@ -138,8 +138,9 @@ int CNPC_BaseZombie::ACT_ZOM_SWATRIGHTLOW;
 int CNPC_BaseZombie::ACT_ZOM_RELEASECRAB;
 int CNPC_BaseZombie::ACT_ZOM_FALL;
 
-ConVar	sk_zombie_dmg_one_slash( "sk_zombie_dmg_one_slash","0");
-ConVar	sk_zombie_dmg_both_slash( "sk_zombie_dmg_both_slash","0");
+ConVar	sk_zombie_dmg_one_slash( "sk_zombie_dmg_one_slash", "10", FCVAR_NOTIFY, "Damage of one zombie claw. 0 deals no damage, so the bite cannot infect." );
+ConVar	sk_zombie_dmg_both_slash( "sk_zombie_dmg_both_slash", "25", FCVAR_NOTIFY, "Damage of a two-handed zombie claw." );
+ConVar	sv_survival_zombies_hate_players( "sv_survival_zombies_hate_players", "1", FCVAR_NOTIFY, "Zombies treat HL2MP players as enemies and chase them. 0 makes them ignore players." );
 
 
 // When a zombie spawns, he will select a 'base' pitch value
@@ -421,6 +422,12 @@ Class_T	CNPC_BaseZombie::Classify( void )
 //-----------------------------------------------------------------------------
 Disposition_t CNPC_BaseZombie::IRelationType( CBaseEntity *pTarget )
 {
+	// HL2MP never filled the default relationship matrix, so CLASS_ZOMBIE vs
+	// CLASS_PLAYER stayed D_ER and zombies only fidgeted. Force the disposition
+	// toward players so classic, fast, poison and zombine all chase them.
+	if ( pTarget && pTarget->IsPlayer() )
+		return sv_survival_zombies_hate_players.GetBool() ? D_HT : D_NU;
+
 	// Slumping should not affect Zombie's opinion of others
 	if ( IsSlumped() )
 	{

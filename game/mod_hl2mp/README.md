@@ -43,7 +43,25 @@ El reloj del HUD empieza a las 08:00. `sv_survival_day_length 720` es un día co
 
 En Hammer (más adelante): `survival_crate` suelta comida y agua, `survival_bed` duerme. Para probar ya: `sv_cheats 1` y `ent_create survival_bed` o `survival_sleep`. Dormir llena la stamina y suma un poco de hambre y sed. Entre las 20:00 y las 07:00 el reloj salta a las 07:00.
 
-Zombies de prueba (cheat): `survival_spawn_zombie` con `zombie`, `fast`, `poison` o `zombine`.
+Zombies de prueba (cheat): `survival_spawn_zombie` con `zombie`, `fast`, `poison`, `zombine`, `torso` o `headcrab`.
+
+## Combate de zombis
+
+HL2MP no inicializaba la tabla de relaciones de HL2, así que un zombi veía al jugador como `D_ER` y solo se movía en el sitio. Además `sk_zombie_health` nacía en 0: un disparo de pistola (8 de daño, 16 a la cabeza) lo mataba.
+
+Con `sv_survival_zombies_hate_players 1` (el valor por defecto) el zombi persigue y muerde. `sk_zombie_health 80` aguanta varios tiros de pistola. `sk_zombie_health 1` vuelve a dejarlo a un disparo. La mordida usa `sk_zombie_dmg_one_slash` (10).
+
+`dm_lockdown` no trae grafo de `info_node`. El zombi avanza a pasos hacia el jugador (`sv_survival_nodeless_chase 1`) sin esa red. `nav_generate` arma la malla de NextBot, que estos NPC no usan. No hace falta, y `ent_create info_node` puede cerrar el juego.
+
+Prueba, con el mapa ya cargado:
+
+```
+exec survival_coop
+sv_cheats 1
+survival_spawn_zombie
+```
+
+Retrocede: el zombi tiene que caminar y golpear. Un tiro de pistola al cuerpo no lo mata. `sk_zombie_health` en consola muestra 80.
 
 ## Mordida, ruido, días y revivir
 

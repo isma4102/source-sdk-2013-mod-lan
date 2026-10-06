@@ -132,8 +132,8 @@ static const char *pMoanSounds[] =
 //-----------------------------------------------------------------------------
 // Skill settings.
 //-----------------------------------------------------------------------------
-ConVar sk_zombie_poison_health( "sk_zombie_poison_health", "0");
-ConVar sk_zombie_poison_dmg_spit( "sk_zombie_poison_dmg_spit","0");
+ConVar sk_zombie_poison_health( "sk_zombie_poison_health", "200", FCVAR_NOTIFY, "Health of npc_poisonzombie." );
+ConVar sk_zombie_poison_dmg_spit( "sk_zombie_poison_dmg_spit", "20", FCVAR_NOTIFY, "Poison zombie spit and claw damage." );
 
 class CNPC_PoisonZombie : public CAI_BlendingHost<CNPC_BaseZombie>
 {

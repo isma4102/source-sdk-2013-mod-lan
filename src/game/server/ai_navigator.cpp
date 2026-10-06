@@ -3528,6 +3528,70 @@ bool CAI_Navigator::MarkCurWaypointFailedLink( void )
 // Output : True is route was found, false otherwise
 //-----------------------------------------------------------------------------
 
+// DM maps such as dm_lockdown ship with an empty info_node graph. Local
+// routes stop at 600 units (300 with ai_strong_optimizations) and a straight
+// trace, so a zombie that can see the player otherwise stands and faces them.
+// nav_generate builds the NextBot mesh, which CAI_BaseNPC does not use.
+ConVar sv_survival_nodeless_chase( "sv_survival_nodeless_chase", "1", FCVAR_NOTIFY, "On maps with no info_node graph, NPCs step toward the goal instead of standing still." );
+
+static AI_Waypoint_t *Survival_BuildNodelessStep( CAI_Pathfinder *pPathfinder, const Vector &origin, const Vector &goal, CBaseEntity *pTarget, float tolerance, Navigation_t navType, bool bLocalSucceed )
+{
+	Vector delta = goal - origin;
+	float len2d = delta.Length2D();
+	if ( len2d < 8.0f )
+		return NULL;
+
+	Vector forward = delta;
+	forward.z = 0.0f;
+	VectorNormalize( forward );
+
+	// Stay under MAX_LOCAL_NAV_DIST_GROUND for both optimization modes.
+	static const float s_flSteps[] = { 240.0f, 160.0f, 96.0f, 48.0f };
+	static const float s_flYaws[] = { 0.0f, 40.0f, -40.0f, 80.0f, -80.0f };
+
+	for ( int iYaw = 0; iYaw < ARRAYSIZE( s_flYaws ); iYaw++ )
+	{
+		Vector dir = forward;
+		if ( s_flYaws[iYaw] != 0.0f )
+		{
+			QAngle ang;
+			VectorAngles( forward, ang );
+			ang.y += s_flYaws[iYaw];
+			AngleVectors( ang, &dir );
+			dir.z = 0.0f;
+			VectorNormalize( dir );
+		}
+
+		bool bTriedFullSidestep = false;
+		for ( int iStep = 0; iStep < ARRAYSIZE( s_flSteps ); iStep++ )
+		{
+			// Sidesteps are for corners. Don't spend the long probes on them.
+			if ( iYaw != 0 && iStep == 0 )
+				continue;
+
+			float step = s_flSteps[iStep];
+			if ( step > len2d )
+			{
+				// The straight full-length route was already attempted. Keep the
+				// shorter steps, and try the exact distance once per sidestep yaw.
+				if ( iYaw == 0 || bTriedFullSidestep )
+					continue;
+				step = len2d;
+				bTriedFullSidestep = true;
+			}
+
+			Vector dest = origin + dir * step;
+			dest.z = origin.z + delta.z * ( step / len2d );
+
+			AI_Waypoint_t *pRoute = pPathfinder->BuildRoute( origin, dest, pTarget, tolerance, navType, bLocalSucceed );
+			if ( pRoute )
+				return pRoute;
+		}
+	}
+
+	return NULL;
+}
+
 bool CAI_Navigator::DoFindPathToPos(void)
 {
 	CAI_Path *		pPath 			= GetPath();
@@ -3553,6 +3617,18 @@ bool CAI_Navigator::DoFindPathToPos(void)
 	pPath->ClearWaypoints();
 
 	AI_Waypoint_t *pFirstWaypoint = pPathfinder->BuildRoute( origin, actualGoalPos, pTarget, tolerance, GetNavType(), m_bLocalSucceedOnWithinTolerance );
+
+	if ( !pFirstWaypoint && sv_survival_nodeless_chase.GetBool() && GetNetwork() && GetNetwork()->NumNodes() <= 0 && GetNavType() == NAV_GROUND )
+	{
+		pFirstWaypoint = Survival_BuildNodelessStep( pPathfinder, origin, actualGoalPos, pTarget, tolerance, GetNavType(), m_bLocalSucceedOnWithinTolerance );
+		if ( pFirstWaypoint )
+		{
+			AI_Waypoint_t *pLast = pFirstWaypoint;
+			while ( pLast->GetNext() )
+				pLast = pLast->GetNext();
+			pPath->ResetGoalPosition( pLast->GetPos() );
+		}
+	}
 
 	if (!pFirstWaypoint)
 	{
