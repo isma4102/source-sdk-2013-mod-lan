@@ -12,6 +12,10 @@
 #include "eventlist.h"
 #include "npcevent.h"
 
+#ifdef HL2MP
+#include "hl2/survival_arsenal.h"
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -801,6 +805,22 @@ const char *CItem_AmmoCrate::m_pGiveWeapon[NUM_AMMO_CRATE_TYPES] =
 //-----------------------------------------------------------------------------
 void CItem_AmmoCrate::Spawn( void )
 {
+#ifdef HL2MP
+	const char *pszStandIn = NULL;
+	switch ( m_nAmmoType )
+	{
+	case AMMOCRATE_LARGE_ROUNDS:	pszStandIn = "item_ammo_ar2"; break;
+	case AMMOCRATE_RPG_ROUNDS:		pszStandIn = "item_rpg_round"; break;
+	case AMMOCRATE_CROSSBOW:		pszStandIn = "item_ammo_crossbow"; break;
+	case AMMOCRATE_AR2_ALTFIRE:		pszStandIn = "item_ammo_ar2_altfire"; break;
+	}
+	if ( pszStandIn && Survival_BlockFictionalItem( pszStandIn ) )
+	{
+		UTIL_Remove( this );
+		return;
+	}
+#endif
+
 	Precache();
 
 	BaseClass::Spawn();

@@ -110,6 +110,7 @@ public:
 	virtual int PlayerRelationship( CBaseEntity *pPlayer, CBaseEntity *pTarget );
 #ifndef CLIENT_DLL
 	virtual bool FPlayerCanTakeDamage( CBasePlayer *pPlayer, CBaseEntity *pAttacker, const CTakeDamageInfo &info );
+	virtual bool IsAllowedToSpawn( CBaseEntity *pEntity );
 #endif
 	virtual void GoToIntermission( void );
 	virtual void DeathNotice( CBasePlayer *pVictim, const CTakeDamageInfo &info );
@@ -169,6 +170,7 @@ private:
 
 #ifndef CLIENT_DLL
 	bool m_bChangelevelDone;
+	bool m_bSurvivalArsenalStripped;
 #endif
 };
 
