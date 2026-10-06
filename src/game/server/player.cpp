@@ -70,6 +70,10 @@
 #include "vote_controller.h"
 #include "ai_speech.h"
 
+#ifdef HL2MP
+#include "hl2/survival_arsenal.h"
+#endif
+
 #if defined USES_ECON_ITEMS
 #include "econ_wearable.h"
 #endif
@@ -5839,6 +5843,14 @@ void CBloodSplat::Think( void )
 //-----------------------------------------------------------------------------
 CBaseEntity	*CBasePlayer::GiveNamedItem( const char *pszName, int iSubType )
 {
+#ifdef HL2MP
+	if ( Survival_BlockFictionalItem( pszName ) )
+	{
+		ClientPrint( this, HUD_PRINTCENTER, "Esa arma no entra en el arsenal de supervivencia." );
+		return NULL;
+	}
+#endif
+
 	// If I already own this type don't create one
 	if ( Weapon_OwnsThisType(pszName, iSubType) )
 		return NULL;

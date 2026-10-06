@@ -34,6 +34,7 @@
 	#include "hl2mp_gameinterface.h"
 	#include "hl2mp_cvars.h"
 	#include "takedamageinfo.h"
+	#include "hl2/survival_arsenal.h"
 
 extern void respawn(CBaseEntity *pEdict, bool fCopyCorpse);
 
@@ -54,6 +55,44 @@ extern CBaseEntity	 *g_pLastRebelSpawn;
 
 // Shared so the client and the server agree. Default on: this mod is co-op.
 ConVar sv_survival_coop( "sv_survival_coop", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Players cannot hurt each other, and frag or time limits do not end the map." );
+ConVar sv_survival_realistic_weapons( "sv_survival_realistic_weapons", "1", FCVAR_NOTIFY, "Remove sci-fi weapons: gravity gun, AR2, RPG, crossbow, stunstick and SLAM." );
+
+bool Survival_BlockFictionalItem( const char *pszClass )
+{
+	if ( !sv_survival_realistic_weapons.GetBool() || !pszClass || !pszClass[0] )
+		return false;
+
+	static const char *s_pszBanned[] =
+	{
+		"weapon_physcannon",
+		"weapon_physgun",
+		"weapon_ar2",
+		"weapon_rpg",
+		"weapon_crossbow",
+		"weapon_stunstick",
+		"weapon_slam",
+		"weapon_bugbait",
+		"weapon_alyxgun",
+		"weapon_hopwire",
+		"item_ammo_ar2",
+		"item_ammo_ar2_large",
+		"item_ammo_ar2_altfire",
+		"item_rpg_round",
+		"item_ml_grenade",
+		"item_ammo_crossbow",
+		"prop_combine_ball",
+		"point_combine_ball_launcher",
+		"func_combine_ball_spawner",
+	};
+
+	for ( int i = 0; i < ARRAYSIZE( s_pszBanned ); i++ )
+	{
+		if ( !Q_stricmp( pszClass, s_pszBanned[i] ) )
+			return true;
+	}
+
+	return false;
+}
 
 REGISTER_GAMERULES_CLASS( CHL2MPRules );
 
@@ -206,6 +245,7 @@ CHL2MPRules::CHL2MPRules()
 	m_bHeardAllPlayersReady = false;
 	m_bAwaitingReadyRestart = false;
 	m_bChangelevelDone = false;
+	m_bSurvivalArsenalStripped = false;
 
 #endif
 }
@@ -310,6 +350,17 @@ void CHL2MPRules::Think( void )
 		}
 
 		return;
+	}
+
+	if ( !m_bSurvivalArsenalStripped )
+	{
+		m_bSurvivalArsenalStripped = true;
+		CBaseEntity *pEnt = NULL;
+		while ( ( pEnt = gEntList.NextEnt( pEnt ) ) != NULL )
+		{
+			if ( Survival_BlockFictionalItem( pEnt->GetClassname() ) )
+				UTIL_Remove( pEnt );
+		}
 	}
 
 //	float flTimeLimit = mp_timelimit.GetFloat() * 60;
@@ -838,6 +889,14 @@ int CHL2MPRules::PlayerRelationship( CBaseEntity *pPlayer, CBaseEntity *pTarget 
 }
 
 #ifndef CLIENT_DLL
+bool CHL2MPRules::IsAllowedToSpawn( CBaseEntity *pEntity )
+{
+	if ( pEntity && Survival_BlockFictionalItem( pEntity->GetClassname() ) )
+		return false;
+
+	return BaseClass::IsAllowedToSpawn( pEntity );
+}
+
 bool CHL2MPRules::FPlayerCanTakeDamage( CBasePlayer *pPlayer, CBaseEntity *pAttacker, const CTakeDamageInfo &info )
 {
 	if ( sv_survival_coop.GetBool() && pPlayer && pAttacker && pAttacker != pPlayer && !info.IsForceFriendlyFire() )
