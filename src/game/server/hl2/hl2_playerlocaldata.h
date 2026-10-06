@@ -14,6 +14,7 @@
 #include "networkvar.h"
 
 #include "hl_movedata.h"
+#include "hl2/survival_inventory.h"
 
 //-----------------------------------------------------------------------------
 // Purpose: Player specific data for HL2 ( sent only to local player, too )
@@ -35,6 +36,9 @@ public:
 	CNetworkVar( float, m_flHunger );
 	CNetworkVar( float, m_flThirst );
 	CNetworkVar( float, m_flStamina );
+
+	// Packed slots: low byte type, next byte restore amount. Owner-only, like the needs.
+	CNetworkArray( int, m_nInventorySlot, SURVIVAL_INVENTORY_SLOTS );
 
 	CNetworkVar( float, m_flTimeAllSuitDevicesOff );
 	CNetworkVar( bool,  m_bNewSprinting );

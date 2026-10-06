@@ -214,9 +214,9 @@
 		"visible" "1"
 		"enabled" "1"
 		"xpos"	"16"
-		"ypos"	"312"
-		"wide"	"168"
-		"tall"	"54"
+		"ypos"	"280"
+		"wide"	"180"
+		"tall"	"72"
 	}
 
 	HudSuitPower [!$DECK]

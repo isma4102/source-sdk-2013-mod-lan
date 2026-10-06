@@ -1,6 +1,6 @@
 //========= Copyright Valve Corporation, All rights reserved. ============//
 //
-// Purpose: Food and water consumed with +use (E). Walking into them does nothing.
+// Purpose: Food and water picked up with +use (E) into the backpack. Walking into them does nothing.
 //
 //=============================================================================//
 
@@ -30,7 +30,7 @@ public:
 	}
 
 protected:
-	bool TryConsume( CBaseEntity *pActivator, bool bFood );
+	bool TryPickup( CBaseEntity *pActivator, bool bFood );
 	float m_flRestoreAmount;
 };
 
@@ -38,20 +38,19 @@ BEGIN_DATADESC( CItemSurvivalConsumable )
 	DEFINE_KEYFIELD( m_flRestoreAmount, FIELD_FLOAT, "restore_amount" ),
 END_DATADESC()
 
-bool CItemSurvivalConsumable::TryConsume( CBaseEntity *pActivator, bool bFood )
+bool CItemSurvivalConsumable::TryPickup( CBaseEntity *pActivator, bool bFood )
 {
 	CHL2_Player *pPlayer = dynamic_cast<CHL2_Player *>( ToBasePlayer( pActivator ) );
 	if ( !pPlayer || !pPlayer->IsAlive() )
 		return false;
 
-	float flAmount = m_flRestoreAmount;
-	if ( flAmount <= 0.0f )
-		flAmount = 25.0f;
+	int nAmount = (int)m_flRestoreAmount;
+	if ( nAmount <= 0 )
+		nAmount = 25;
 
-	bool bApplied = bFood ? pPlayer->ApplyFood( flAmount ) : pPlayer->ApplyWater( flAmount );
-	if ( !bApplied )
+	if ( !pPlayer->SurvivalInventory_Add( bFood ? SURVIVAL_ITEM_FOOD : SURVIVAL_ITEM_WATER, nAmount ) )
 	{
-		ClientPrint( pPlayer, HUD_PRINTCENTER, bFood ? "Ya no tienes hambre" : "Ya no tienes sed" );
+		ClientPrint( pPlayer, HUD_PRINTCENTER, "Mochila llena" );
 		return false;
 	}
 
@@ -59,10 +58,7 @@ bool CItemSurvivalConsumable::TryConsume( CBaseEntity *pActivator, bool bFood )
 	CPASAttenuationFilter filter( pPlayer, pszSound );
 	EmitSound( filter, pPlayer->entindex(), pszSound );
 
-	char szMsg[64];
-	Q_snprintf( szMsg, sizeof( szMsg ), bFood ? "Hambre +%d" : "Sed +%d", (int)flAmount );
-	ClientPrint( pPlayer, HUD_PRINTCENTER, szMsg );
-
+	ClientPrint( pPlayer, HUD_PRINTCENTER, bFood ? "Comida guardada" : "Agua guardada" );
 	UTIL_Remove( this );
 	return true;
 }
@@ -87,7 +83,7 @@ public:
 
 	void Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
 	{
-		TryConsume( pActivator, true );
+		TryPickup( pActivator, true );
 	}
 };
 
@@ -114,7 +110,7 @@ public:
 
 	void Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
 	{
-		TryConsume( pActivator, false );
+		TryPickup( pActivator, false );
 	}
 };
 

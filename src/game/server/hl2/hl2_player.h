@@ -144,6 +144,11 @@ public:
 	bool SurvivalNeeds_SetByName( const char *pszNeed, float flValue );
 	bool ApplyFood( float flAmount );
 	bool ApplyWater( float flAmount );
+	void SurvivalInventory_Clear( void );
+	int SurvivalInventory_CountType( int nType );
+	bool SurvivalInventory_Add( int nType, int nAmount );
+	bool SurvivalInventory_ConsumeType( int nType );
+	void SurvivalInventory_Dump( CBasePlayer *pNotify );
 	bool SuitPower_IsDeviceActive( const CSuitPowerDevice &device );
 	bool SuitPower_AddDevice( const CSuitPowerDevice &device );
 	bool SuitPower_RemoveDevice( const CSuitPowerDevice &device );
