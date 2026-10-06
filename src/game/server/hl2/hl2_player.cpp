@@ -289,6 +289,116 @@ void CC_ToggleDuck( void )
 
 static ConCommand toggle_duck("toggle_duck", CC_ToggleDuck, "Toggles duck" );
 
+//-----------------------------------------------------------------------------
+// Debug: print / set the calling player's survival needs.
+// DT_HL2Local is already owner-only, so each client only receives their own copy.
+//-----------------------------------------------------------------------------
+static void Survival_Reply( CBasePlayer *pPlayer, const char *pszMsg )
+{
+	if ( pPlayer )
+	{
+		ClientPrint( pPlayer, HUD_PRINTCONSOLE, pszMsg );
+	}
+
+	Msg( "%s", pszMsg );
+}
+
+static void CC_SurvivalDump( const CCommand & )
+{
+	CBasePlayer *pPlayer = UTIL_GetCommandClient();
+	CHL2_Player *pHL2Player = dynamic_cast<CHL2_Player *>( pPlayer );
+
+	if ( !pHL2Player )
+	{
+		Msg( "survival_dump: must be run by a player.\n" );
+		return;
+	}
+
+	Survival_Reply( pPlayer, UTIL_VarArgs( "survival_dump: %s (#%d) hunger %.2f thirst %.2f stamina %.2f\n",
+		pHL2Player->GetPlayerName(),
+		pHL2Player->entindex(),
+		pHL2Player->SurvivalNeeds_GetHunger(),
+		pHL2Player->SurvivalNeeds_GetThirst(),
+		pHL2Player->SurvivalNeeds_GetStamina() ) );
+}
+
+static ConCommand survival_dump( "survival_dump", CC_SurvivalDump, "Print the calling player's server-side survival needs (hunger, thirst, stamina)." );
+
+static bool Survival_ParseValue( const char *pszValue, float *pOut )
+{
+	if ( !pszValue || !pszValue[0] || !pOut )
+		return false;
+
+	const char *p = pszValue;
+	if ( *p == '+' || *p == '-' )
+		p++;
+
+	bool bDigit = false;
+	bool bDot = false;
+	for ( ; *p; p++ )
+	{
+		if ( *p >= '0' && *p <= '9' )
+		{
+			bDigit = true;
+			continue;
+		}
+
+		if ( *p == '.' && !bDot )
+		{
+			bDot = true;
+			continue;
+		}
+
+		return false;
+	}
+
+	if ( !bDigit )
+		return false;
+
+	*pOut = (float)atof( pszValue );
+	return true;
+}
+
+static void CC_SurvivalSet( const CCommand &args )
+{
+	CBasePlayer *pPlayer = UTIL_GetCommandClient();
+	CHL2_Player *pHL2Player = dynamic_cast<CHL2_Player *>( pPlayer );
+
+	if ( !pHL2Player )
+	{
+		Msg( "survival_set: must be run by a player.\n" );
+		return;
+	}
+
+	if ( args.ArgC() != 3 )
+	{
+		Survival_Reply( pPlayer, "Usage: survival_set <hunger|thirst|stamina> <0-100>\n" );
+		return;
+	}
+
+	float flValue = 0.0f;
+	if ( !Survival_ParseValue( args[2], &flValue ) )
+	{
+		Survival_Reply( pPlayer, "Usage: survival_set <hunger|thirst|stamina> <0-100>\n" );
+		return;
+	}
+
+	if ( !pHL2Player->SurvivalNeeds_SetByName( args[1], flValue ) )
+	{
+		Survival_Reply( pPlayer, "Usage: survival_set <hunger|thirst|stamina> <0-100>\n" );
+		return;
+	}
+
+	Survival_Reply( pPlayer, UTIL_VarArgs( "survival_set: %s (#%d) hunger %.2f thirst %.2f stamina %.2f\n",
+		pHL2Player->GetPlayerName(),
+		pHL2Player->entindex(),
+		pHL2Player->SurvivalNeeds_GetHunger(),
+		pHL2Player->SurvivalNeeds_GetThirst(),
+		pHL2Player->SurvivalNeeds_GetStamina() ) );
+}
+
+static ConCommand survival_set( "survival_set", CC_SurvivalSet, "Set one survival need on the calling player. Usage: survival_set <hunger|thirst|stamina> <0-100>", FCVAR_CHEAT );
+
 #ifndef HL2MP
 #ifndef PORTAL
 LINK_ENTITY_TO_CLASS( player, CHL2_Player );
@@ -1186,6 +1296,9 @@ void CHL2_Player::Spawn(void)
 
 	SuitPower_SetCharge( 100 );
 
+	// Hunger, thirst and stamina reset on every spawn, including respawn.
+	SurvivalNeeds_Reset();
+
 	m_Local.m_iHideHUD |= HIDEHUD_CHAT;
 
 	m_pPlayerAISquad = g_AI_SquadManager.FindCreateSquad(AllocPooledString(PLAYER_SQUADNAME));
@@ -1868,6 +1981,43 @@ void CHL2_Player::SuitPower_Initialize( void )
 	m_HL2Local.m_bitsActiveDevices = 0x00000000;
 	m_HL2Local.m_flSuitPower = 100.0;
 	m_HL2Local.m_flSuitPowerLoad = 0.0;
+}
+
+//-----------------------------------------------------------------------------
+// Survival needs. Separate from suit power. 100 = fine.
+//-----------------------------------------------------------------------------
+void CHL2_Player::SurvivalNeeds_Reset( void )
+{
+	m_HL2Local.m_flHunger = 100.0f;
+	m_HL2Local.m_flThirst = 100.0f;
+	m_HL2Local.m_flStamina = 100.0f;
+}
+
+bool CHL2_Player::SurvivalNeeds_SetByName( const char *pszNeed, float flValue )
+{
+	if ( !pszNeed || !pszNeed[0] )
+		return false;
+
+	flValue = clamp( flValue, 0.0f, 100.0f );
+
+	if ( !Q_stricmp( pszNeed, "hunger" ) )
+	{
+		m_HL2Local.m_flHunger = flValue;
+	}
+	else if ( !Q_stricmp( pszNeed, "thirst" ) )
+	{
+		m_HL2Local.m_flThirst = flValue;
+	}
+	else if ( !Q_stricmp( pszNeed, "stamina" ) )
+	{
+		m_HL2Local.m_flStamina = flValue;
+	}
+	else
+	{
+		return false;
+	}
+
+	return true;
 }
 
 

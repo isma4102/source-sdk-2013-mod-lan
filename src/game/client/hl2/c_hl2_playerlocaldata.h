@@ -31,6 +31,12 @@ public:
 
 	float	m_flSuitPower;
 	float	m_flSuitPowerLoad;
+
+	// Survival needs. 100 = fine, 0 = empty. Mirrored from DT_HL2Local.
+	float	m_flHunger;
+	float	m_flThirst;
+	float	m_flStamina;
+
 	float	m_flTimeAllSuitDevicesOff;
 	bool	m_bNewSprinting;
 	bool	m_bZooming;
