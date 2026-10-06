@@ -37,6 +37,11 @@ public:
 	float	m_flHunger;
 	float	m_flThirst;
 	float	m_flStamina;
+	float	m_flInfection;
+	bool	m_bSurvivalDowned;
+	float	m_flDownedEnds;
+	bool	m_bReviveHint;
+	float	m_flReviveProgress;
 	int		m_nInventorySlot[SURVIVAL_INVENTORY_SLOTS];
 
 	float	m_flTimeAllSuitDevicesOff;

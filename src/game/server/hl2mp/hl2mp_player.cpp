@@ -642,6 +642,8 @@ void CHL2MP_Player::OnMyWeaponFired( CBaseCombatWeapon* weapon )
 	BaseClass::OnMyWeaponFired( weapon );
 
 	TheNextBots().OnWeaponFired( this, weapon );
+
+	Survival_OnWeaponNoise( weapon );
 }
 
 void CHL2MP_Player::NoteWeaponFired( void )
@@ -1198,6 +1200,7 @@ int CHL2MP_Player::FlashlightIsOn( void )
 }
 
 extern ConVar flashlight;
+extern ConVar sv_survival_downed_enabled;
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -1273,6 +1276,17 @@ void CHL2MP_Player::DetonateTripmines( void )
 
 void CHL2MP_Player::Event_Killed( const CTakeDamageInfo &info )
 {
+	// OnTakeDamage drops health to 0 before this runs, then still calls Event_Dying.
+	// The first lethal hit becomes a downed crawl unless this death was forced
+	// (bleed-out timer or infection at 100).
+	if ( !Survival_WantsRealDeath() && sv_survival_downed_enabled.GetBool() && !Survival_IsDowned() )
+	{
+		Survival_EnterDowned();
+		return;
+	}
+
+	Survival_ClearDowned();
+
 	//update damage info with our accumulated physics force
 	CTakeDamageInfo subinfo = info;
 	subinfo.SetDamageForce( m_vecTotalBulletForce );
@@ -1317,11 +1331,43 @@ void CHL2MP_Player::Event_Killed( const CTakeDamageInfo &info )
 	StopZooming();
 }
 
+void CHL2MP_Player::Event_Dying( const CTakeDamageInfo &info )
+{
+	// Event_Killed turned this hit into a down. Do not start the death think.
+	if ( Survival_IsDowned() && m_iHealth > 0 && !Survival_WantsRealDeath() )
+		return;
+
+	BaseClass::Event_Dying( info );
+}
+
 int CHL2MP_Player::OnTakeDamage( const CTakeDamageInfo &inputInfo )
 {
 	//return here if the player is in the respawn grace period vs. slams.
 	if ( gpGlobals->curtime < m_flSlamProtectTime &&  (inputInfo.GetDamageType() == DMG_BLAST ) )
 		return 0;
+
+	if ( IsAlive() && !( GetFlags() & FL_GODMODE ) && inputInfo.GetDamage() > 0.0f )
+	{
+		if ( !g_pGameRules || g_pGameRules->FPlayerCanTakeDamage( this, inputInfo.GetAttacker(), inputInfo ) )
+			Survival_TryInfect( inputInfo );
+	}
+
+	// Extra hits while downed must not skip the bleed timer. Infection at 100
+	// and the timer set the real-death flag before they call TakeDamage.
+	if ( Survival_IsDowned() && !Survival_WantsRealDeath() && IsAlive() )
+	{
+		if ( m_iHealth <= 1 )
+			return 0;
+
+		if ( inputInfo.GetDamage() >= m_iHealth )
+		{
+			CTakeDamageInfo clamped = inputInfo;
+			clamped.SetDamage( (float)( m_iHealth - 1 ) );
+			m_vecTotalBulletForce += clamped.GetDamageForce();
+			gamestats->Event_PlayerDamage( this, inputInfo );
+			return BaseClass::OnTakeDamage( clamped );
+		}
+	}
 
 	m_vecTotalBulletForce += inputInfo.GetDamageForce();
 	

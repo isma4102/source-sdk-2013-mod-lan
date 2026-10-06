@@ -15,6 +15,7 @@
 #endif
 #include <vgui/ISurface.h>
 #include <vgui/IScheme.h>
+#include <vgui/ILocalize.h>
 
 using namespace vgui;
 
@@ -55,10 +56,21 @@ bool CHudSurvival::ShouldDraw( void )
 	return CHudElement::ShouldDraw();
 }
 
-void CHudSurvival::DrawNeed( int y, const wchar_t *wszLabel, float flValue, Color col )
+static const wchar_t *Survival_Loc( const char *pszToken, const wchar_t *pszFallback )
+{
+	if ( g_pVGuiLocalize )
+	{
+		const wchar_t *pText = g_pVGuiLocalize->Find( pszToken );
+		if ( pText && pText[0] )
+			return pText;
+	}
+	return pszFallback;
+}
+
+void CHudSurvival::DrawNeed( int y, const wchar_t *wszLabel, float flValue, Color col, bool bLowIsDanger )
 {
 	flValue = clamp( flValue, 0.0f, 100.0f );
-	if ( flValue <= 25.0f )
+	if ( ( bLowIsDanger && flValue <= 25.0f ) || ( !bLowIsDanger && flValue >= 50.0f ) )
 	{
 		col = Color( 220, 50, 50, 255 );
 	}
@@ -68,8 +80,11 @@ void CHudSurvival::DrawNeed( int y, const wchar_t *wszLabel, float flValue, Colo
 	surface()->DrawSetTextPos( 0, y );
 	surface()->DrawPrintText( wszLabel, wcslen( wszLabel ) );
 
-	const int nLabelW = 56;
-	const int nNumberW = 24;
+	int nTextW = 0;
+	int nTextH = 0;
+	surface()->GetTextSize( m_hFont, wszLabel, nTextW, nTextH );
+	const int nLabelW = nTextW + 8;
+	const int nNumberW = 28;
 	int nBarX = nLabelW;
 	int nBarW = GetWide() - nLabelW - nNumberW;
 	int nBarH = 6;
@@ -89,6 +104,7 @@ void CHudSurvival::DrawNeed( int y, const wchar_t *wszLabel, float flValue, Colo
 
 	wchar_t wszNum[8];
 	V_snwprintf( wszNum, ARRAYSIZE( wszNum ), L"%d", (int)flValue );
+	surface()->DrawSetTextColor( col );
 	surface()->DrawSetTextPos( nBarX + nBarW + 4, y );
 	surface()->DrawPrintText( wszNum, wcslen( wszNum ) );
 }
@@ -99,14 +115,15 @@ void CHudSurvival::Paint()
 	if ( !pPlayer || !m_hFont )
 		return;
 
-	const int nInvH = 14;
-	int nRowH = ( GetTall() - nInvH ) / 3;
+	const int nFooter = 28;
+	int nRowH = ( GetTall() - nFooter ) / 4;
 	if ( nRowH < 12 )
 		nRowH = 12;
 
-	DrawNeed( 0, L"Hambre", pPlayer->m_HL2Local.m_flHunger, Color( 220, 140, 40, 255 ) );
-	DrawNeed( nRowH, L"Sed", pPlayer->m_HL2Local.m_flThirst, Color( 80, 170, 230, 255 ) );
-	DrawNeed( nRowH * 2, L"Stamina", pPlayer->m_HL2Local.m_flStamina, Color( 90, 200, 90, 255 ) );
+	DrawNeed( 0, Survival_Loc( "#Survival_Hunger", L"Hambre" ), pPlayer->m_HL2Local.m_flHunger, Color( 220, 140, 40, 255 ), true );
+	DrawNeed( nRowH, Survival_Loc( "#Survival_Thirst", L"Sed" ), pPlayer->m_HL2Local.m_flThirst, Color( 80, 170, 230, 255 ), true );
+	DrawNeed( nRowH * 2, Survival_Loc( "#Survival_Fatigue", L"Cansancio" ), pPlayer->m_HL2Local.m_flStamina, Color( 90, 200, 90, 255 ), true );
+	DrawNeed( nRowH * 3, Survival_Loc( "#Survival_Infection", L"Infeccion" ), pPlayer->m_HL2Local.m_flInfection, Color( 180, 70, 190, 255 ), false );
 
 	int nFood = 0;
 	int nWater = 0;
@@ -119,11 +136,19 @@ void CHudSurvival::Paint()
 			nWater++;
 	}
 
-	wchar_t wszInv[64];
-	V_snwprintf( wszInv, ARRAYSIZE( wszInv ), L"Comida %d   Agua %d", nFood, nWater );
+	wchar_t wszFood[8];
+	wchar_t wszWater[8];
+	wchar_t wszInv[96];
+	V_snwprintf( wszFood, ARRAYSIZE( wszFood ), L"%d", nFood );
+	V_snwprintf( wszWater, ARRAYSIZE( wszWater ), L"%d", nWater );
+	const wchar_t *pInvFmt = g_pVGuiLocalize ? g_pVGuiLocalize->Find( "#Survival_FoodWater" ) : NULL;
+	if ( pInvFmt )
+		g_pVGuiLocalize->ConstructString( wszInv, sizeof( wszInv ), pInvFmt, 2, wszFood, wszWater );
+	else
+		V_snwprintf( wszInv, ARRAYSIZE( wszInv ), L"Comida %d   Agua %d", nFood, nWater );
 	surface()->DrawSetTextFont( m_hFont );
 	surface()->DrawSetTextColor( Color( 230, 230, 230, 255 ) );
-	surface()->DrawSetTextPos( 0, nRowH * 3 );
+	surface()->DrawSetTextPos( 0, nRowH * 4 );
 	surface()->DrawPrintText( wszInv, wcslen( wszInv ) );
 
 #ifdef HL2MP
@@ -135,14 +160,124 @@ void CHudSurvival::Paint()
 		if ( nMinute > 59 )
 			nMinute = 59;
 
-		wchar_t wszClock[16];
-		V_snwprintf( wszClock, ARRAYSIZE( wszClock ), L"%02d:%02d", nHour, nMinute );
+		wchar_t wszDayNum[8];
+		wchar_t wszDay[48];
+		V_snwprintf( wszDayNum, ARRAYSIZE( wszDayNum ), L"%d", HL2MPRules()->Survival_GetDay() );
+		const wchar_t *pDayFmt = g_pVGuiLocalize ? g_pVGuiLocalize->Find( "#Survival_Day" ) : NULL;
+		if ( pDayFmt )
+			g_pVGuiLocalize->ConstructString( wszDay, sizeof( wszDay ), pDayFmt, 1, wszDayNum );
+		else
+			V_snwprintf( wszDay, ARRAYSIZE( wszDay ), L"Dia %d", HL2MPRules()->Survival_GetDay() );
+
+		wchar_t wszClock[64];
+		V_snwprintf( wszClock, ARRAYSIZE( wszClock ), L"%s  %02d:%02d", wszDay, nHour, nMinute );
 		surface()->DrawSetTextColor( Color( 230, 220, 160, 255 ) );
-		surface()->DrawSetTextPos( 0, nRowH * 3 + nInvH );
+		surface()->DrawSetTextPos( 0, nRowH * 4 + 14 );
 		surface()->DrawPrintText( wszClock, wcslen( wszClock ) );
 	}
 #endif
 }
+
+class CHudSurvivalStatus : public CHudElement, public vgui::Panel
+{
+	DECLARE_CLASS_SIMPLE( CHudSurvivalStatus, vgui::Panel );
+
+public:
+	CHudSurvivalStatus( const char *pElementName ) : CHudElement( pElementName ), BaseClass( NULL, "HudSurvivalStatus" )
+	{
+		vgui::Panel *pParent = g_pClientMode->GetViewport();
+		SetParent( pParent );
+		SetHiddenBits( HIDEHUD_PLAYERDEAD );
+		SetMouseInputEnabled( false );
+		SetKeyBoardInputEnabled( false );
+		SetPaintBackgroundEnabled( false );
+		m_hFont = 0;
+	}
+
+	virtual void ApplySchemeSettings( vgui::IScheme *pScheme )
+	{
+		BaseClass::ApplySchemeSettings( pScheme );
+		SetPaintBackgroundEnabled( false );
+		m_hFont = pScheme->GetFont( "Default", true );
+		SetSize( ScreenWidth(), ScreenHeight() );
+	}
+
+	virtual bool ShouldDraw( void )
+	{
+		C_BaseHLPlayer *pPlayer = dynamic_cast<C_BaseHLPlayer *>( C_BasePlayer::GetLocalPlayer() );
+		if ( !pPlayer || !pPlayer->IsAlive() )
+			return false;
+		if ( !pPlayer->m_HL2Local.m_bSurvivalDowned && !pPlayer->m_HL2Local.m_bReviveHint )
+			return false;
+		return CHudElement::ShouldDraw();
+	}
+
+protected:
+	virtual void Paint()
+	{
+		C_BaseHLPlayer *pPlayer = dynamic_cast<C_BaseHLPlayer *>( C_BasePlayer::GetLocalPlayer() );
+		if ( !pPlayer || !m_hFont )
+			return;
+
+		SetSize( ScreenWidth(), ScreenHeight() );
+		surface()->DrawSetTextFont( m_hFont );
+
+		int nCenterX = GetWide() / 2;
+		int nY = GetTall() / 2 - 20;
+
+		if ( pPlayer->m_HL2Local.m_bSurvivalDowned )
+		{
+			const wchar_t *pDown = Survival_Loc( "#Survival_Downed", L"Estas herido..." );
+			int nW = 0, nH = 0;
+			surface()->GetTextSize( m_hFont, pDown, nW, nH );
+			surface()->DrawSetTextColor( Color( 220, 60, 60, 255 ) );
+			surface()->DrawSetTextPos( nCenterX - nW / 2, nY );
+			surface()->DrawPrintText( pDown, wcslen( pDown ) );
+
+			float flLeft = pPlayer->m_HL2Local.m_flDownedEnds - gpGlobals->curtime;
+			if ( flLeft < 0.0f )
+				flLeft = 0.0f;
+			wchar_t wszSecs[8];
+			wchar_t wszTime[64];
+			V_snwprintf( wszSecs, ARRAYSIZE( wszSecs ), L"%d", (int)( flLeft + 0.5f ) );
+			const wchar_t *pTimeFmt = g_pVGuiLocalize ? g_pVGuiLocalize->Find( "#Survival_DownedTime" ) : NULL;
+			if ( pTimeFmt )
+				g_pVGuiLocalize->ConstructString( wszTime, sizeof( wszTime ), pTimeFmt, 1, wszSecs );
+			else
+				V_snwprintf( wszTime, ARRAYSIZE( wszTime ), L"%s s", wszSecs );
+			surface()->GetTextSize( m_hFont, wszTime, nW, nH );
+			surface()->DrawSetTextPos( nCenterX - nW / 2, nY + nH + 4 );
+			surface()->DrawPrintText( wszTime, wcslen( wszTime ) );
+			return;
+		}
+
+		if ( pPlayer->m_HL2Local.m_bReviveHint )
+		{
+			const wchar_t *pRevive = Survival_Loc( "#Survival_Revive", L"Revivir" );
+			int nW = 0, nH = 0;
+			surface()->GetTextSize( m_hFont, pRevive, nW, nH );
+			surface()->DrawSetTextColor( Color( 230, 220, 160, 255 ) );
+			surface()->DrawSetTextPos( nCenterX - nW / 2, nY );
+			surface()->DrawPrintText( pRevive, wcslen( pRevive ) );
+
+			float flProgress = clamp( pPlayer->m_HL2Local.m_flReviveProgress, 0.0f, 1.0f );
+			int nBarW = 120;
+			int nBarX = nCenterX - nBarW / 2;
+			int nBarY = nY + nH + 6;
+			surface()->DrawSetColor( Color( 0, 0, 0, 160 ) );
+			surface()->DrawFilledRect( nBarX, nBarY, nBarX + nBarW, nBarY + 8 );
+			surface()->DrawSetColor( Color( 220, 200, 80, 255 ) );
+			int nFilled = (int)( nBarW * flProgress );
+			if ( nFilled > 0 )
+				surface()->DrawFilledRect( nBarX, nBarY, nBarX + nFilled, nBarY + 8 );
+		}
+	}
+
+private:
+	vgui::HFont m_hFont;
+};
+
+DECLARE_HUDELEMENT( CHudSurvivalStatus );
 
 #ifdef HL2MP
 static float Survival_NightAlpha( float flHour )

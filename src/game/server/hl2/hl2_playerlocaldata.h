@@ -37,6 +37,15 @@ public:
 	CNetworkVar( float, m_flThirst );
 	CNetworkVar( float, m_flStamina );
 
+	// Infection from a zombie bite. 0 = clean, 100 = lethal. Owner-only.
+	CNetworkVar( float, m_flInfection );
+	// Downed (bleed-out) instead of the first lethal hit. Owner-only HUD.
+	CNetworkVar( bool, m_bSurvivalDowned );
+	CNetworkVar( float, m_flDownedEnds );
+	// Local revive prompt while looking at a downed teammate.
+	CNetworkVar( bool, m_bReviveHint );
+	CNetworkVar( float, m_flReviveProgress );
+
 	// Packed slots: low byte type, next byte restore amount. Owner-only, like the needs.
 	CNetworkArray( int, m_nInventorySlot, SURVIVAL_INVENTORY_SLOTS );
 

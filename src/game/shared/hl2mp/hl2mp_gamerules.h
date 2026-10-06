@@ -116,6 +116,7 @@ public:
 	virtual void DeathNotice( CBasePlayer *pVictim, const CTakeDamageInfo &info );
 	virtual const char *GetGameDescription( void );
 	float Survival_GetHour( void ) const { return m_flSurvivalClock; }
+	int Survival_GetDay( void ) const { return m_nSurvivalDay; }
 #ifndef CLIENT_DLL
 	void Survival_Sleep( CBasePlayer *pPlayer );
 #endif
@@ -166,6 +167,7 @@ private:
 	CNetworkVar( bool, m_bTeamPlayEnabled );
 	CNetworkVar( float, m_flGameStartTime );
 	CNetworkVar( float, m_flSurvivalClock );
+	CNetworkVar( int, m_nSurvivalDay );
 	CUtlVector<EHANDLE> m_hRespawnableItemsAndWeapons;
 	float m_tmNextPeriodicThink;
 	float m_flRestartGameTime;

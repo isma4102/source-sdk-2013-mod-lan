@@ -780,6 +780,9 @@ Vector C_HL2MP_Player::GetAutoaimVector( float flDelta )
 //-----------------------------------------------------------------------------
 bool C_HL2MP_Player::CanSprint( void )
 {
+	if ( m_HL2Local.m_bSurvivalDowned )
+		return false;
+
 	return ( (!m_Local.m_bDucked && !m_Local.m_bDucking) && (GetWaterLevel() != 3) );
 }
 
@@ -863,6 +866,20 @@ void C_HL2MP_Player::HandleSpeedChanges( CMoveData *mv )
 
 	m_HL2Local.m_bNewSprinting = bSprinting;
 
+	if ( m_HL2Local.m_bSurvivalDowned )
+	{
+		static ConVarRef sv_survival_downed_speed( "sv_survival_downed_speed", true );
+		if ( !sv_survival_downed_speed.IsValid() )
+			sv_survival_downed_speed.Init( "sv_survival_downed_speed", true );
+		float flCrawl = sv_survival_downed_speed.IsValid() ? sv_survival_downed_speed.GetFloat() : 45.0f;
+		if ( flCrawl < 1.0f )
+			flCrawl = 1.0f;
+		m_HL2Local.m_bNewSprinting = false;
+		mv->m_flClientMaxSpeed = flCrawl;
+		mv->m_flMaxSpeed = flCrawl;
+		return;
+	}
+
 	if ( bSprinting )
 	{
 		if ( bJustPressedSpeed )
@@ -921,6 +938,11 @@ void C_HL2MP_Player::ItemPreFrame( void )
 {
 	if ( GetFlags() & FL_FROZEN )
 		 return;
+
+	if ( m_HL2Local.m_bSurvivalDowned )
+	{
+		m_nButtons &= ~( IN_ATTACK | IN_ATTACK2 | IN_RELOAD | IN_SPEED | IN_JUMP );
+	}
 
 	// Disallow shooting while zooming
 	if ( m_nButtons & IN_ZOOM )

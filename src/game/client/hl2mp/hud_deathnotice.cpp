@@ -16,6 +16,7 @@
 #include <KeyValues.h>
 #include "c_baseplayer.h"
 #include "c_team.h"
+#include "hl2mp_gamerules.h"
 
 
 // memdbgon must be the last include file in a .cpp file!!!
@@ -354,7 +355,16 @@ void CHudDeathNotice::FireGameEvent( IGameEvent * event )
 		}
 	}
 
-	Msg( "%s", sDeathMsg );
+	if ( HL2MPRules() )
+	{
+		char sWithDay[560];
+		Q_snprintf( sWithDay, sizeof( sWithDay ), "Dia %d: %s", HL2MPRules()->Survival_GetDay(), sDeathMsg );
+		Msg( "%s", sWithDay );
+	}
+	else
+	{
+		Msg( "%s", sDeathMsg );
+	}
 }
 
 
