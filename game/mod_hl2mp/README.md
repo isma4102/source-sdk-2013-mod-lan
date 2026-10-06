@@ -9,7 +9,9 @@ Cooperativo LAN sobre Half-Life 2: Deathmatch (Source SDK Base 2013 Multiplayer)
 3. Reinicia Steam. El mod aparece como **Supervivencia Paysandu**.
 4. Los dos PCs necesitan la misma carpeta del mod y el SDK Base.
 
-Al abrir el mod, el menú principal usa el fondo de la calle (`materials/console/background01`). En 16:9 entra `background01_widescreen`. El icono pequeño de Steam sigue en `resource/icon.tga` y `logo.png`.
+Si ya estaba instalado, no basta con dejar el juego abierto. Cierra el mod, copia otra vez `game/mod_hl2mp` encima de `steamapps/sourcemods/mod_hl2mp` (sustituye los archivos) y reinicia Steam. El menú lee `gameinfo.txt`, `resource/ClientScheme.res` y los VTF al arrancar. Esta fase no cambia `client.dll` ni `server.dll`; si recompilas, copia también `bin/`. El icono de la biblioteca sigue siendo `resource/icon.tga` y `logo.png`: Steam solo lo refresca al reiniciar.
+
+Al abrir el mod, el fondo es la calle de Paysandú (`materials/console/background01`, y `background01_widescreen` en 16:9). El cuadro entra entero, con barras si la proporción no coincide. El título del menú es **SUPERVIVENCIA** / **PAYSANDU**, en ASCII: GameUI pinta `title` y `title2` con `ClientTitleFont`, y la fuente `HL2MP` del SDK solo trae el logo y los iconos de muerte.
 
 Los binarios de Linux van en `bin/linux64/client.so` y `bin/linux64/server.so`. En Windows hace falta compilar `client.dll` y `server.dll` con el SDK.
 
@@ -85,7 +87,7 @@ survival_dump
 cl_survival_dump
 ```
 
-El menú y el nombre del mod son **Supervivencia Paysandú**. El `hostname` del listen server se queda en ASCII (`Supervivencia Paysandu`) porque la consola del motor no siempre acepta la ú.
+El nombre del mod, en Steam y en la ventana, es **Supervivencia Paysandu**. El `hostname` del listen server usa el mismo ASCII porque la consola del motor no siempre acepta la ú. Los textos del HUD en español siguen en `resource/mod_hl2mp_spanish.txt` (UTF-16); el menú principal no los lee.
 
 ## Mapa de prueba
 
