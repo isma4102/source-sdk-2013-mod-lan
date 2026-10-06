@@ -9,7 +9,7 @@ Cooperativo LAN sobre Half-Life 2: Deathmatch (Source SDK Base 2013 Multiplayer)
 3. Reinicia Steam. El mod aparece como **Supervivencia Paysandu**.
 4. Los dos PCs necesitan la misma carpeta del mod y el SDK Base.
 
-Si ya estaba instalado, no basta con dejar el juego abierto. Cierra el mod, copia otra vez `game/mod_hl2mp` encima de `steamapps/sourcemods/mod_hl2mp` (sustituye los archivos) y reinicia Steam. El menú lee `gameinfo.txt`, `resource/ClientScheme.res` y los VTF al arrancar. Esta fase no cambia `client.dll` ni `server.dll`; si recompilas, copia también `bin/`. El icono de la biblioteca sigue siendo `resource/icon.tga` y `logo.png`: Steam solo lo refresca al reiniciar.
+Si ya estaba instalado, no basta con dejar el juego abierto. Cierra el mod, copia otra vez `game/mod_hl2mp` encima de `steamapps/sourcemods/mod_hl2mp` (sustituye los archivos) y reinicia Steam. El menú lee `gameinfo.txt`, `resource/ClientScheme.res` y los VTF al arrancar. Esta fase cambia el sprint en `client.dll` y `server.dll`: hay que recompilar y copiar `bin/`. El icono de la biblioteca sigue siendo `resource/icon.tga` y `logo.png`: Steam solo lo refresca al reiniciar.
 
 Al abrir el mod, el fondo es la calle de Paysandú (`materials/console/background01`, y `background01_widescreen` en 16:9). El cuadro entra entero, con barras si la proporción no coincide. El título del menú es **SUPERVIVENCIA** / **PAYSANDU**, en ASCII: GameUI pinta `title` y `title2` con `ClientTitleFont`, y la fuente `HL2MP` del SDK solo trae el logo y los iconos de muerte.
 
@@ -33,7 +33,7 @@ bind h survival_drink
 
 E (`+use`) guarda comida y agua en la mochila. Caminar encima no las consume. `survival_eat` y `survival_drink` gastan un slot. Al reaparecer, hambre, sed y stamina vuelven a 100 y la mochila se vacía.
 
-La stamina es independiente de la energía del traje HEV. Sprintar la gasta. Con hambre o sed en 0 no se regenera y el jugador recibe daño.
+La barra de cansancio es stamina que queda: 100 es fresco y 90 sigue siendo casi lleno. El sprint no gasta la energía del traje HEV (`sv_survival_sprint_uses_suit 0`). Se gastan 5 puntos por segundo (`sv_survival_stamina_drain_sprint`): unos 11 s a velocidad plena. Por debajo de 45 (`sv_survival_stamina_slow_at`) la velocidad baja en línea hasta 0.75 en 0. El sprint se corta en 1 (`sv_survival_stamina_sprint_min`). Quieto se recupera a 10/s. Con hambre o sed en 0 no se regenera y el jugador recibe daño. `sv_survival_sprint_uses_suit 1` devuelve el corte por el traje.
 
 ## Arsenal
 

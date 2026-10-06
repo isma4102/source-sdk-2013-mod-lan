@@ -788,6 +788,54 @@ bool C_HL2MP_Player::CanSprint( void )
 
 extern ConVar sv_maxspeed;
 
+static bool Survival_ClientNeedsOn( void )
+{
+	static ConVarRef sv_survival_needs_enabled( "sv_survival_needs_enabled", true );
+	if ( !sv_survival_needs_enabled.IsValid() )
+		sv_survival_needs_enabled.Init( "sv_survival_needs_enabled", true );
+	return sv_survival_needs_enabled.IsValid() && sv_survival_needs_enabled.GetBool();
+}
+
+static bool Survival_ClientSprintUsesSuit( void )
+{
+	static ConVarRef sv_survival_sprint_uses_suit( "sv_survival_sprint_uses_suit", true );
+	if ( !sv_survival_sprint_uses_suit.IsValid() )
+		sv_survival_sprint_uses_suit.Init( "sv_survival_sprint_uses_suit", true );
+
+	// Needs off: classic HEV sprint. Cvar missing: match the server default (0).
+	if ( !Survival_ClientNeedsOn() )
+		return true;
+	if ( !sv_survival_sprint_uses_suit.IsValid() )
+		return false;
+	return sv_survival_sprint_uses_suit.GetBool();
+}
+
+static float Survival_ClientStaminaSpeedScale( float flStamina )
+{
+	static ConVarRef sv_survival_stamina_slow_at( "sv_survival_stamina_slow_at", true );
+	static ConVarRef sv_survival_stamina_slow_scale( "sv_survival_stamina_slow_scale", true );
+	if ( !sv_survival_stamina_slow_at.IsValid() )
+		sv_survival_stamina_slow_at.Init( "sv_survival_stamina_slow_at", true );
+	if ( !sv_survival_stamina_slow_scale.IsValid() )
+		sv_survival_stamina_slow_scale.Init( "sv_survival_stamina_slow_scale", true );
+
+	if ( !Survival_ClientNeedsOn() )
+		return 1.0f;
+
+	float flAt = sv_survival_stamina_slow_at.IsValid() ? sv_survival_stamina_slow_at.GetFloat() : 45.0f;
+	float flMin = sv_survival_stamina_slow_scale.IsValid() ? sv_survival_stamina_slow_scale.GetFloat() : 0.75f;
+	if ( flAt <= 0.0f || flMin >= 1.0f )
+		return 1.0f;
+	if ( flMin < 0.2f )
+		flMin = 0.2f;
+	if ( flStamina >= flAt )
+		return 1.0f;
+	if ( flStamina <= 0.0f )
+		return flMin;
+
+	return flMin + ( 1.0f - flMin ) * ( flStamina / flAt );
+}
+
 void C_HL2MP_Player::HandleSpeedChanges( CMoveData *mv )
 {
 	int nChangedButtons = mv->m_nButtons ^ mv->m_nOldButtons;
@@ -797,12 +845,15 @@ void C_HL2MP_Player::HandleSpeedChanges( CMoveData *mv )
 	const bool bWantSprint = ( CanSprint() && IsSuitEquipped() && ( mv->m_nButtons & IN_SPEED ) );
 	const bool bWantsToChangeSprinting = ( m_HL2Local.m_bNewSprinting != bWantSprint ) && ( nChangedButtons & IN_SPEED ) != 0;
 
+	// Same suit gate as the server. Default off, so stamina near 90 still sprints.
+	const bool bSuitLimitsSprint = Survival_ClientSprintUsesSuit();
+
 	bool bSprinting = m_HL2Local.m_bNewSprinting;
 	if ( bWantsToChangeSprinting )
 	{
 		if ( bWantSprint )
 		{
-			if ( m_HL2Local.m_flSuitPower < 10.0f )
+			if ( bSuitLimitsSprint && m_HL2Local.m_flSuitPower < 10.0f )
 			{
 				if ( bJustPressedSpeed )
 				{
@@ -822,23 +873,20 @@ void C_HL2MP_Player::HandleSpeedChanges( CMoveData *mv )
 		}
 	}
 
-	if ( m_HL2Local.m_flSuitPower < 0.01 )
+	if ( bSuitLimitsSprint && m_HL2Local.m_flSuitPower < 0.01f )
 	{
 		bSprinting = false;
 	}
 
 	// Server-replicated stamina. Retry the lookup until the replicated cvars exist.
-	static ConVarRef sv_survival_needs_enabled( "sv_survival_needs_enabled", true );
 	static ConVarRef sv_survival_stamina_sprint_min( "sv_survival_stamina_sprint_min", true );
-	if ( !sv_survival_needs_enabled.IsValid() )
-		sv_survival_needs_enabled.Init( "sv_survival_needs_enabled", true );
 	if ( !sv_survival_stamina_sprint_min.IsValid() )
 		sv_survival_stamina_sprint_min.Init( "sv_survival_stamina_sprint_min", true );
-	const bool bNeedsOn = sv_survival_needs_enabled.IsValid() && sv_survival_needs_enabled.GetBool();
+	const bool bNeedsOn = Survival_ClientNeedsOn();
 	const float flSprintMin = sv_survival_stamina_sprint_min.IsValid() ? sv_survival_stamina_sprint_min.GetFloat() : 1.0f;
 	if ( bNeedsOn && m_HL2Local.m_flStamina <= flSprintMin )
 	{
-		if ( bJustPressedSpeed && ( mv->m_nButtons & IN_SPEED ) && m_HL2Local.m_flSuitPower >= 10.0f )
+		if ( bJustPressedSpeed && ( mv->m_nButtons & IN_SPEED ) && ( !bSuitLimitsSprint || m_HL2Local.m_flSuitPower >= 10.0f ) )
 		{
 			CPASAttenuationFilter filter( this );
 			filter.UsePredictionRules();
@@ -899,14 +947,14 @@ void C_HL2MP_Player::HandleSpeedChanges( CMoveData *mv )
 		mv->m_flClientMaxSpeed = HL2_NORM_SPEED;
 	}
 
+	mv->m_flClientMaxSpeed *= Survival_ClientStaminaSpeedScale( m_HL2Local.m_flStamina );
+
 	mv->m_flMaxSpeed = sv_maxspeed.GetFloat();
 }
 
 void C_HL2MP_Player::ReduceTimers( CMoveData* mv )
 {
-	bool bSprinting = mv->m_flClientMaxSpeed == HL2_SPRINT_SPEED;
-
-	if ( bSprinting )
+	if ( m_HL2Local.m_bNewSprinting && Survival_ClientSprintUsesSuit() )
 	{
 		SuitPower_AddDevice( SuitDeviceSprint );
 	}

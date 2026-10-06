@@ -735,6 +735,10 @@ void CHL2_Player::StopSprinting( void )
 
 extern ConVar sv_maxspeed;
 
+// Defined with the survival ConVars, further down this file.
+static bool Survival_SprintUsesSuit( void );
+static float Survival_StaminaSpeedScale( float flStamina );
+
 void CHL2_Player::HandleSpeedChanges( CMoveData *mv )
 {
 	int nChangedButtons = mv->m_nButtons ^ mv->m_nOldButtons;
@@ -744,12 +748,17 @@ void CHL2_Player::HandleSpeedChanges( CMoveData *mv )
 	const bool bWantSprint = ( CanSprint() && IsSuitEquipped() && ( mv->m_nButtons & IN_SPEED ) );
 	const bool bWantsToChangeSprinting = ( m_HL2Local.m_bNewSprinting != bWantSprint ) && ( nChangedButtons & IN_SPEED ) != 0;
 
+	// HEV suit power empties in about 4 seconds in HL2MP and does not
+	// recover as fast as stamina. With the old gate, burst sprinting
+	// locked sprint while the stamina bar was still near 90.
+	const bool bSuitLimitsSprint = Survival_SprintUsesSuit();
+
 	bool bSprinting = m_HL2Local.m_bNewSprinting;
 	if ( bWantsToChangeSprinting )
 	{
 		if ( bWantSprint )
 		{
-			if ( m_HL2Local.m_flSuitPower < 10.0f )
+			if ( bSuitLimitsSprint && m_HL2Local.m_flSuitPower < 10.0f )
 			{
 				if ( bJustPressedSpeed )
 				{
@@ -769,7 +778,7 @@ void CHL2_Player::HandleSpeedChanges( CMoveData *mv )
 		}
 	}
 
-	if ( m_HL2Local.m_flSuitPower < 0.01 )
+	if ( bSuitLimitsSprint && m_HL2Local.m_flSuitPower < 0.01f )
 	{
 		bSprinting = false;
 	}
@@ -778,7 +787,7 @@ void CHL2_Player::HandleSpeedChanges( CMoveData *mv )
 	// not only when the speed key changes.
 	if ( SurvivalNeeds_BlocksSprint() )
 	{
-		if ( bJustPressedSpeed && ( mv->m_nButtons & IN_SPEED ) && m_HL2Local.m_flSuitPower >= 10.0f )
+		if ( bJustPressedSpeed && ( mv->m_nButtons & IN_SPEED ) && ( !bSuitLimitsSprint || m_HL2Local.m_flSuitPower >= 10.0f ) )
 		{
 			CPASAttenuationFilter filter( this );
 			filter.UsePredictionRules();
@@ -832,6 +841,10 @@ void CHL2_Player::HandleSpeedChanges( CMoveData *mv )
 		mv->m_flClientMaxSpeed = HL2_NORM_SPEED;
 	}
 
+	// Full speed above the tired threshold. The scale is 1 until then,
+	// so a bar at 90 does not slow the player down.
+	mv->m_flClientMaxSpeed *= Survival_StaminaSpeedScale( m_HL2Local.m_flStamina );
+
 	mv->m_flMaxSpeed = sv_maxspeed.GetFloat();
 
 	Survival_OnSprintNoise();
@@ -839,9 +852,9 @@ void CHL2_Player::HandleSpeedChanges( CMoveData *mv )
 
 void CHL2_Player::ReduceTimers( CMoveData *mv )
 {
-	bool bSprinting = mv->m_flClientMaxSpeed == HL2_SPRINT_SPEED;
-
-	if ( bSprinting )
+	// m_bNewSprinting, not the raw sprint speed: the tired scale changes
+	// m_flClientMaxSpeed and would otherwise look like "not sprinting".
+	if ( m_HL2Local.m_bNewSprinting && Survival_SprintUsesSuit() )
 	{
 		SuitPower_AddDevice( SuitDeviceSprint );
 	}
@@ -2179,8 +2192,11 @@ ConVar sv_survival_hunger_rate( "sv_survival_hunger_rate", "0.04", FCVAR_REPLICA
 ConVar sv_survival_thirst_rate( "sv_survival_thirst_rate", "0.07", FCVAR_REPLICATED | FCVAR_NOTIFY, "Thirst lost per second. Thirst falls faster than hunger." );
 ConVar sv_survival_stamina_regen( "sv_survival_stamina_regen", "10", FCVAR_REPLICATED | FCVAR_NOTIFY, "Stamina regained per second while not sprinting. Does not touch HEV suit power." );
 ConVar sv_survival_stamina_regen_starving( "sv_survival_stamina_regen_starving", "0", FCVAR_REPLICATED | FCVAR_NOTIFY, "Stamina regen per second while hunger or thirst is empty." );
-ConVar sv_survival_stamina_drain_sprint( "sv_survival_stamina_drain_sprint", "12", FCVAR_REPLICATED | FCVAR_NOTIFY, "Stamina lost per second while sprinting. Separate from HEV suit power." );
+ConVar sv_survival_stamina_drain_sprint( "sv_survival_stamina_drain_sprint", "5", FCVAR_REPLICATED | FCVAR_NOTIFY, "Stamina lost per second while sprinting. About 20 seconds from full to empty. Separate from HEV suit power." );
 ConVar sv_survival_stamina_sprint_min( "sv_survival_stamina_sprint_min", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Sprint is blocked at or below this stamina." );
+ConVar sv_survival_stamina_slow_at( "sv_survival_stamina_slow_at", "45", FCVAR_REPLICATED | FCVAR_NOTIFY, "Below this stamina, move speed falls toward sv_survival_stamina_slow_scale. At or above it, speed is full. 0 disables the slowdown." );
+ConVar sv_survival_stamina_slow_scale( "sv_survival_stamina_slow_scale", "0.75", FCVAR_REPLICATED | FCVAR_NOTIFY, "Move speed multiplier at 0 stamina. 1 disables the slowdown. Lerps up to full speed at sv_survival_stamina_slow_at." );
+ConVar sv_survival_sprint_uses_suit( "sv_survival_sprint_uses_suit", "0", FCVAR_REPLICATED | FCVAR_NOTIFY, "If 1, sprint also drains HEV suit power and stops when that bar is empty. If 0, only survival stamina limits sprint." );
 ConVar sv_survival_hunger_damage( "sv_survival_hunger_damage", "2", FCVAR_NOTIFY, "Damage each interval while hunger is empty." );
 ConVar sv_survival_thirst_damage( "sv_survival_thirst_damage", "3", FCVAR_NOTIFY, "Damage each interval while thirst is empty." );
 ConVar sv_survival_empty_damage( "sv_survival_empty_damage", "0", FCVAR_NOTIFY, "Extra damage each interval if hunger or thirst is empty. Added on top of the split damage ConVars." );
@@ -2594,6 +2610,33 @@ void CHL2_Player::Survival_UpdateRevive( void )
 
 	ClientPrint( pTarget, HUD_PRINTCENTER, "#Survival_Revived" );
 	ClientPrint( this, HUD_PRINTCENTER, "#Survival_YouRevived" );
+}
+
+static bool Survival_SprintUsesSuit( void )
+{
+	if ( !sv_survival_needs_enabled.GetBool() )
+		return true;
+
+	return sv_survival_sprint_uses_suit.GetBool();
+}
+
+static float Survival_StaminaSpeedScale( float flStamina )
+{
+	if ( !sv_survival_needs_enabled.GetBool() )
+		return 1.0f;
+
+	float flAt = sv_survival_stamina_slow_at.GetFloat();
+	float flMin = sv_survival_stamina_slow_scale.GetFloat();
+	if ( flAt <= 0.0f || flMin >= 1.0f )
+		return 1.0f;
+	if ( flMin < 0.2f )
+		flMin = 0.2f;
+	if ( flStamina >= flAt )
+		return 1.0f;
+	if ( flStamina <= 0.0f )
+		return flMin;
+
+	return flMin + ( 1.0f - flMin ) * ( flStamina / flAt );
 }
 
 bool CHL2_Player::SurvivalNeeds_BlocksSprint( void )
