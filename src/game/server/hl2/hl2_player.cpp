@@ -2108,6 +2108,24 @@ bool CHL2_Player::SurvivalNeeds_SetByName( const char *pszNeed, float flValue )
 	return true;
 }
 
+bool CHL2_Player::ApplyFood( float flAmount )
+{
+	if ( flAmount <= 0.0f || m_HL2Local.m_flHunger >= 100.0f )
+		return false;
+
+	m_HL2Local.m_flHunger = clamp( m_HL2Local.m_flHunger + flAmount, 0.0f, 100.0f );
+	return true;
+}
+
+bool CHL2_Player::ApplyWater( float flAmount )
+{
+	if ( flAmount <= 0.0f || m_HL2Local.m_flThirst >= 100.0f )
+		return false;
+
+	m_HL2Local.m_flThirst = clamp( m_HL2Local.m_flThirst + flAmount, 0.0f, 100.0f );
+	return true;
+}
+
 
 //-----------------------------------------------------------------------------
 // Purpose: Interface to drain power from the suit's power supply.
