@@ -136,6 +136,8 @@ public:
 	// Survival needs (hunger / thirst / stamina). Range 0-100, 100 = fine.
 	// Stored in m_HL2Local, which is private, so console commands go through these.
 	void SurvivalNeeds_Reset( void );
+	void SurvivalNeeds_Update( void );
+	bool SurvivalNeeds_BlocksSprint( void );
 	float SurvivalNeeds_GetHunger( void ) { return m_HL2Local.m_flHunger; }
 	float SurvivalNeeds_GetThirst( void ) { return m_HL2Local.m_flThirst; }
 	float SurvivalNeeds_GetStamina( void ) { return m_HL2Local.m_flStamina; }
@@ -358,6 +360,7 @@ private:
 	int					m_iArmorReductionFrom;
 
 	float				m_flTimeUseSuspended;
+	float				m_flNextSurvivalDamageTime;
 
 	CSimpleSimTimer		m_LowerWeaponTimer;
 	CSimpleSimTimer		m_AutoaimTimer;

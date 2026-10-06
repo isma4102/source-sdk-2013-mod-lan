@@ -429,6 +429,7 @@ BEGIN_DATADESC( CHL2_Player )
 	DEFINE_FIELD( m_bSprintEnabled, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_fIsSprinting, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_fIsWalking, FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_flNextSurvivalDamageTime, FIELD_TIME ),
 
 	/*
 	// These are initialized every time the player calls Activate()
@@ -499,6 +500,7 @@ CHL2_Player::CHL2_Player()
 
 	m_flArmorReductionTime = 0.0f;
 	m_iArmorReductionFrom = 0;
+	m_flNextSurvivalDamageTime = 0.0f;
 }
 
 //
@@ -644,6 +646,20 @@ void CHL2_Player::HandleSpeedChanges( CMoveData *mv )
 		bSprinting = false;
 	}
 
+	// Stamina is separate from suit power. Drop sprint as soon as it is exhausted,
+	// not only when the speed key changes.
+	if ( SurvivalNeeds_BlocksSprint() )
+	{
+		if ( bJustPressedSpeed && ( mv->m_nButtons & IN_SPEED ) && m_HL2Local.m_flSuitPower >= 10.0f )
+		{
+			CPASAttenuationFilter filter( this );
+			filter.UsePredictionRules();
+			EmitSound( filter, entindex(), "HL2Player.SprintNoPower" );
+		}
+
+		bSprinting = false;
+	}
+
 	bool bWantWalking;
 
 	if ( IsSuitEquipped() )
@@ -744,6 +760,9 @@ void CHL2_Player::PreThink(void)
 		m_HL2Local.m_vecLocatorOrigin = vec3_invalid; // This tells the client we have no locator target.
 	}
 #endif//HL2_EPISODIC
+
+	// Hunger, thirst and stamina. Runs in vehicles too; CHL2MP_Player::PreThink calls this.
+	SurvivalNeeds_Update();
 
 	// Riding a vehicle?
 	if ( IsInAVehicle() )	
@@ -1341,6 +1360,9 @@ void CHL2_Player::InitSprinting( void )
 //-----------------------------------------------------------------------------
 bool CHL2_Player::CanSprint()
 {
+	if ( SurvivalNeeds_BlocksSprint() )
+		return false;
+
 	return ( m_bSprintEnabled &&										// Only if sprint is enabled 
 			!( m_Local.m_bDucked && !m_Local.m_bDucking ) &&			// Nor if we're ducking
 			(GetWaterLevel() != 3) &&									// Certainly not underwater
@@ -1991,6 +2013,72 @@ void CHL2_Player::SurvivalNeeds_Reset( void )
 	m_HL2Local.m_flHunger = 100.0f;
 	m_HL2Local.m_flThirst = 100.0f;
 	m_HL2Local.m_flStamina = 100.0f;
+}
+
+ConVar sv_survival_needs_enabled( "sv_survival_needs_enabled", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Turn hunger, thirst and stamina decay on or off." );
+ConVar sv_survival_hunger_rate( "sv_survival_hunger_rate", "0.05", FCVAR_REPLICATED | FCVAR_NOTIFY, "Hunger lost per second." );
+ConVar sv_survival_thirst_rate( "sv_survival_thirst_rate", "0.08", FCVAR_REPLICATED | FCVAR_NOTIFY, "Thirst lost per second." );
+ConVar sv_survival_stamina_regen( "sv_survival_stamina_regen", "8", FCVAR_REPLICATED | FCVAR_NOTIFY, "Stamina regained per second while not sprinting." );
+ConVar sv_survival_stamina_drain_sprint( "sv_survival_stamina_drain_sprint", "12", FCVAR_REPLICATED | FCVAR_NOTIFY, "Stamina lost per second while sprinting." );
+ConVar sv_survival_stamina_sprint_min( "sv_survival_stamina_sprint_min", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Sprint is blocked at or below this stamina." );
+ConVar sv_survival_empty_damage( "sv_survival_empty_damage", "2", FCVAR_NOTIFY, "Damage applied each interval while hunger or thirst is empty." );
+ConVar sv_survival_empty_damage_interval( "sv_survival_empty_damage_interval", "1", FCVAR_NOTIFY, "Seconds between empty-need damage ticks." );
+
+bool CHL2_Player::SurvivalNeeds_BlocksSprint( void )
+{
+	if ( !sv_survival_needs_enabled.GetBool() )
+		return false;
+
+	return m_HL2Local.m_flStamina <= sv_survival_stamina_sprint_min.GetFloat();
+}
+
+void CHL2_Player::SurvivalNeeds_Update( void )
+{
+	if ( !sv_survival_needs_enabled.GetBool() )
+		return;
+
+	if ( !IsAlive() )
+		return;
+
+	float flDt = gpGlobals->frametime;
+	if ( flDt <= 0.0f )
+		return;
+
+	float flHunger = clamp( m_HL2Local.m_flHunger - sv_survival_hunger_rate.GetFloat() * flDt, 0.0f, 100.0f );
+	float flThirst = clamp( m_HL2Local.m_flThirst - sv_survival_thirst_rate.GetFloat() * flDt, 0.0f, 100.0f );
+
+	float flStamina = m_HL2Local.m_flStamina;
+	if ( m_HL2Local.m_bNewSprinting )
+		flStamina -= sv_survival_stamina_drain_sprint.GetFloat() * flDt;
+	else
+		flStamina += sv_survival_stamina_regen.GetFloat() * flDt;
+	flStamina = clamp( flStamina, 0.0f, 100.0f );
+
+	m_HL2Local.m_flHunger = flHunger;
+	m_HL2Local.m_flThirst = flThirst;
+	m_HL2Local.m_flStamina = flStamina;
+
+	if ( flHunger > 0.0f && flThirst > 0.0f )
+		return;
+
+	if ( gpGlobals->curtime < m_flNextSurvivalDamageTime )
+		return;
+
+	float flInterval = sv_survival_empty_damage_interval.GetFloat();
+	if ( flInterval < 0.1f )
+		flInterval = 0.1f;
+
+	m_flNextSurvivalDamageTime = gpGlobals->curtime + flInterval;
+
+	float flDamage = sv_survival_empty_damage.GetFloat();
+	DevMsg( "survival: %s empty-need tick hunger %.1f thirst %.1f damage %.1f\n",
+		GetPlayerName(), flHunger, flThirst, flDamage );
+
+	if ( flDamage <= 0.0f )
+		return;
+
+	CTakeDamageInfo info( this, this, flDamage, DMG_GENERIC );
+	TakeDamage( info );
 }
 
 bool CHL2_Player::SurvivalNeeds_SetByName( const char *pszNeed, float flValue )

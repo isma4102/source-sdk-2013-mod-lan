@@ -824,6 +824,27 @@ void C_HL2MP_Player::HandleSpeedChanges( CMoveData *mv )
 		bSprinting = false;
 	}
 
+	// Server-replicated stamina. Retry the lookup until the replicated cvars exist.
+	static ConVarRef sv_survival_needs_enabled( "sv_survival_needs_enabled", true );
+	static ConVarRef sv_survival_stamina_sprint_min( "sv_survival_stamina_sprint_min", true );
+	if ( !sv_survival_needs_enabled.IsValid() )
+		sv_survival_needs_enabled.Init( "sv_survival_needs_enabled", true );
+	if ( !sv_survival_stamina_sprint_min.IsValid() )
+		sv_survival_stamina_sprint_min.Init( "sv_survival_stamina_sprint_min", true );
+	const bool bNeedsOn = sv_survival_needs_enabled.IsValid() && sv_survival_needs_enabled.GetBool();
+	const float flSprintMin = sv_survival_stamina_sprint_min.IsValid() ? sv_survival_stamina_sprint_min.GetFloat() : 1.0f;
+	if ( bNeedsOn && m_HL2Local.m_flStamina <= flSprintMin )
+	{
+		if ( bJustPressedSpeed && ( mv->m_nButtons & IN_SPEED ) && m_HL2Local.m_flSuitPower >= 10.0f )
+		{
+			CPASAttenuationFilter filter( this );
+			filter.UsePredictionRules();
+			EmitSound( filter, entindex(), "HL2Player.SprintNoPower" );
+		}
+
+		bSprinting = false;
+	}
+
 	bool bWantWalking;
 
 	if ( IsSuitEquipped() )
