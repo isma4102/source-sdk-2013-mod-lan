@@ -8,6 +8,9 @@
 #include "items.h"
 #include "hl2_player.h"
 #include "engine/IEngineSound.h"
+#ifdef HL2MP
+#include "hl2mp_gamerules.h"
+#endif
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -215,3 +218,53 @@ void CSurvivalCrate::Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYP
 	else
 		ClientPrint( pPlayer, HUD_PRINTCENTER, "Recoges parte del contenido" );
 }
+
+#ifdef HL2MP
+class CSurvivalBed : public CBaseAnimating
+{
+public:
+	DECLARE_CLASS( CSurvivalBed, CBaseAnimating );
+
+	CSurvivalBed()
+	{
+		m_flNextSleep = 0.0f;
+	}
+
+	void Precache( void )
+	{
+		PrecacheModel( "models/props_c17/FurnitureMattress001a.mdl" );
+	}
+
+	void Spawn( void )
+	{
+		Precache();
+		SetModel( "models/props_c17/FurnitureMattress001a.mdl" );
+		SetSolid( SOLID_VPHYSICS );
+		SetMoveType( MOVETYPE_NONE );
+		VPhysicsInitStatic();
+	}
+
+	int ObjectCaps( void )
+	{
+		return BaseClass::ObjectCaps() | FCAP_IMPULSE_USE;
+	}
+
+	void Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
+	{
+		if ( gpGlobals->curtime < m_flNextSleep )
+			return;
+
+		if ( !HL2MPRules() )
+			return;
+
+		m_flNextSleep = gpGlobals->curtime + 2.0f;
+		HL2MPRules()->Survival_Sleep( ToBasePlayer( pActivator ) );
+	}
+
+private:
+	float m_flNextSleep;
+};
+
+LINK_ENTITY_TO_CLASS( survival_bed, CSurvivalBed );
+PRECACHE_REGISTER( survival_bed );
+#endif

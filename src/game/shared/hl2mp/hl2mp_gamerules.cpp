@@ -56,6 +56,8 @@ extern CBaseEntity	 *g_pLastRebelSpawn;
 // Shared so the client and the server agree. Default on: this mod is co-op.
 ConVar sv_survival_coop( "sv_survival_coop", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Players cannot hurt each other, and frag or time limits do not end the map." );
 ConVar sv_survival_realistic_weapons( "sv_survival_realistic_weapons", "1", FCVAR_NOTIFY, "Remove sci-fi weapons: gravity gun, AR2, RPG, crossbow, stunstick and SLAM." );
+ConVar sv_survival_day_length( "sv_survival_day_length", "720", FCVAR_NOTIFY, "Real seconds for a 24 hour survival clock. 0 pauses the clock." );
+ConVar sv_survival_sleep_restore( "sv_survival_sleep_restore", "20", FCVAR_NOTIFY, "Hunger and thirst restored by sleeping. Stamina always returns to 100." );
 
 bool Survival_BlockFictionalItem( const char *pszClass )
 {
@@ -100,8 +102,10 @@ BEGIN_NETWORK_TABLE_NOBASE( CHL2MPRules, DT_HL2MPRules )
 
 	#ifdef CLIENT_DLL
 		RecvPropBool( RECVINFO( m_bTeamPlayEnabled ) ),
+		RecvPropFloat( RECVINFO( m_flSurvivalClock ) ),
 	#else
 		SendPropBool( SENDINFO( m_bTeamPlayEnabled ) ),
+		SendPropFloat( SENDINFO( m_flSurvivalClock ), 12, SPROP_ROUNDDOWN, 0.0f, 24.0f ),
 	#endif
 
 END_NETWORK_TABLE()
@@ -224,6 +228,7 @@ char *sTeamNames[] =
 
 CHL2MPRules::CHL2MPRules()
 {
+	m_flSurvivalClock = 8.0f;
 #ifndef CLIENT_DLL
 	// Create the team managers
 	for ( int i = 0; i < ARRAYSIZE( sTeamNames ); i++ )
@@ -336,6 +341,15 @@ void CHL2MPRules::Think( void )
 #ifndef CLIENT_DLL
 	
 	CGameRules::Think();
+
+	float flDayLength = sv_survival_day_length.GetFloat();
+	if ( flDayLength > 0.0f )
+	{
+		float flHour = m_flSurvivalClock + gpGlobals->frametime * ( 24.0f / flDayLength );
+		while ( flHour >= 24.0f )
+			flHour -= 24.0f;
+		m_flSurvivalClock = flHour;
+	}
 
 	if ( g_fGameOver )   // someone else quit the game already
 	{
@@ -889,6 +903,28 @@ int CHL2MPRules::PlayerRelationship( CBaseEntity *pPlayer, CBaseEntity *pTarget 
 }
 
 #ifndef CLIENT_DLL
+void CHL2MPRules::Survival_Sleep( CBasePlayer *pPlayer )
+{
+	CHL2_Player *pHL2 = dynamic_cast<CHL2_Player *>( pPlayer );
+	if ( !pHL2 || !pHL2->IsAlive() )
+		return;
+
+	pHL2->Survival_Rest();
+
+	float flRestore = sv_survival_sleep_restore.GetFloat();
+	pHL2->ApplyFood( flRestore );
+	pHL2->ApplyWater( flRestore );
+
+	float flHour = m_flSurvivalClock;
+	bool bNight = ( flHour >= 20.0f || flHour < 7.0f );
+	if ( bNight )
+		m_flSurvivalClock = 7.0f;
+
+	color32 black = { 0, 0, 0, 255 };
+	UTIL_ScreenFade( pHL2, black, 1.0f, 0.6f, FFADE_IN );
+	ClientPrint( pHL2, HUD_PRINTCENTER, bNight ? "Duermes hasta el amanecer." : "Descansas un rato." );
+}
+
 bool CHL2MPRules::IsAllowedToSpawn( CBaseEntity *pEntity )
 {
 	if ( pEntity && Survival_BlockFictionalItem( pEntity->GetClassname() ) )
@@ -1443,6 +1479,15 @@ CON_COMMAND_F( survival_spawn_zombie, "Spawn a zombie in front of you. Optional:
 	char szMsg[96];
 	Q_snprintf( szMsg, sizeof( szMsg ), "Spawned %s\n", pszClass );
 	ClientPrint( pPlayer, HUD_PRINTCONSOLE, szMsg );
+}
+
+CON_COMMAND_F( survival_sleep, "Sleep: stamina to 100 and a bit of hunger and thirst. At night the clock jumps to 07:00.", FCVAR_CHEAT )
+{
+	CBasePlayer *pPlayer = ToBasePlayer( UTIL_GetCommandClient() );
+	if ( !pPlayer || !HL2MPRules() )
+		return;
+
+	HL2MPRules()->Survival_Sleep( pPlayer );
 }
 
 #endif

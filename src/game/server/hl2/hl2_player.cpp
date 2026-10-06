@@ -2061,6 +2061,11 @@ void CHL2_Player::SurvivalNeeds_Reset( void )
 	m_HL2Local.m_flStamina = 100.0f;
 }
 
+void CHL2_Player::Survival_Rest( void )
+{
+	m_HL2Local.m_flStamina = 100.0f;
+}
+
 ConVar sv_survival_needs_enabled( "sv_survival_needs_enabled", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Turn hunger, thirst and stamina decay on or off." );
 ConVar sv_survival_hunger_rate( "sv_survival_hunger_rate", "0.04", FCVAR_REPLICATED | FCVAR_NOTIFY, "Hunger lost per second. About 40 minutes from full to empty." );
 ConVar sv_survival_thirst_rate( "sv_survival_thirst_rate", "0.07", FCVAR_REPLICATED | FCVAR_NOTIFY, "Thirst lost per second. Thirst falls faster than hunger." );

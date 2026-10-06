@@ -216,7 +216,18 @@
 		"xpos"	"16"
 		"ypos"	"280"
 		"wide"	"180"
-		"tall"	"72"
+		"tall"	"96"
+	}
+
+	HudSurvivalNight
+	{
+		"fieldName" "HudSurvivalNight"
+		"visible" "1"
+		"enabled" "1"
+		"xpos"	"0"
+		"ypos"	"0"
+		"wide"	"640"
+		"tall"	"480"
 	}
 
 	HudSuitPower [!$DECK]
