@@ -51,6 +51,8 @@ extern CBaseEntity	 *g_pLastRebelSpawn;
 
 #endif
 
+// Shared so the client and the server agree. Default on: this mod is co-op.
+ConVar sv_survival_coop( "sv_survival_coop", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Players cannot hurt each other, and frag or time limits do not end the map." );
 
 REGISTER_GAMERULES_CLASS( CHL2MPRules );
 
@@ -312,13 +314,14 @@ void CHL2MPRules::Think( void )
 //	float flTimeLimit = mp_timelimit.GetFloat() * 60;
 	float flFragLimit = fraglimit.GetFloat();
 	
-	if ( GetMapRemainingTime() < 0 )
+	// Co-op sessions should not end because someone fragged a zombie or the clock ran out.
+	if ( !sv_survival_coop.GetBool() && GetMapRemainingTime() < 0 )
 	{
 		GoToIntermission();
 		return;
 	}
 
-	if ( flFragLimit )
+	if ( !sv_survival_coop.GetBool() && flFragLimit )
 	{
 		if( IsTeamplay() == true )
 		{
@@ -833,8 +836,30 @@ int CHL2MPRules::PlayerRelationship( CBaseEntity *pPlayer, CBaseEntity *pTarget 
 	return GR_NOTTEAMMATE;
 }
 
+bool CHL2MPRules::FPlayerCanTakeDamage( CBasePlayer *pPlayer, CBaseEntity *pAttacker, const CTakeDamageInfo &info )
+{
+	if ( sv_survival_coop.GetBool() && pPlayer && pAttacker && pAttacker != pPlayer && !info.IsForceFriendlyFire() )
+	{
+		CBaseEntity *pAttackingPlayer = pAttacker;
+		if ( !pAttackingPlayer->IsPlayer() )
+		{
+			CBaseEntity *pOwner = pAttackingPlayer->GetOwnerEntity();
+			if ( pOwner && pOwner->IsPlayer() )
+				pAttackingPlayer = pOwner;
+		}
+
+		if ( pAttackingPlayer->IsPlayer() && pAttackingPlayer != pPlayer )
+			return false;
+	}
+
+	return BaseClass::FPlayerCanTakeDamage( pPlayer, pAttacker, info );
+}
+
 const char *CHL2MPRules::GetGameDescription( void )
 { 
+	if ( sv_survival_coop.GetBool() )
+		return "Paysandu Survival";
+
 	if ( IsTeamplay() )
 		return "Team Deathmatch"; 
 
@@ -1284,6 +1309,72 @@ const char *CHL2MPRules::GetChatFormat( bool bTeamOnly, CBasePlayer *pPlayer )
 	}
 
 	return pszFormat;
+}
+
+static const char *Survival_ResolveZombieClass( const char *pszArg )
+{
+	if ( !pszArg || !pszArg[0] || !Q_stricmp( pszArg, "zombie" ) || !Q_stricmp( pszArg, "npc_zombie" ) )
+		return "npc_zombie";
+	if ( !Q_stricmp( pszArg, "torso" ) || !Q_stricmp( pszArg, "npc_zombie_torso" ) )
+		return "npc_zombie_torso";
+	if ( !Q_stricmp( pszArg, "headcrab" ) || !Q_stricmp( pszArg, "npc_headcrab" ) )
+		return "npc_headcrab";
+	if ( !Q_stricmp( pszArg, "fastcrab" ) || !Q_stricmp( pszArg, "npc_headcrab_fast" ) )
+		return "npc_headcrab_fast";
+	if ( !Q_stricmp( pszArg, "poisoncrab" ) || !Q_stricmp( pszArg, "npc_headcrab_black" ) || !Q_stricmp( pszArg, "npc_headcrab_poison" ) )
+		return "npc_headcrab_black";
+	return NULL;
+}
+
+CON_COMMAND_F( survival_spawn_zombie, "Spawn a zombie in front of you. Optional: zombie, torso, headcrab, fastcrab, poisoncrab.", FCVAR_CHEAT )
+{
+	if ( !UTIL_IsCommandIssuedByServerAdmin() )
+		return;
+
+	CBasePlayer *pPlayer = UTIL_GetCommandClient();
+	if ( !pPlayer )
+		return;
+
+	const char *pszClass = Survival_ResolveZombieClass( args.ArgC() >= 2 ? args[1] : "zombie" );
+	if ( !pszClass )
+	{
+		ClientPrint( pPlayer, HUD_PRINTCONSOLE, "survival_spawn_zombie: use zombie, torso, headcrab, fastcrab or poisoncrab.\n" );
+		return;
+	}
+
+	bool bAllowPrecache = CBaseEntity::IsPrecacheAllowed();
+	CBaseEntity::SetAllowPrecache( true );
+
+	CBaseEntity *pNPC = CreateEntityByName( pszClass );
+	if ( !pNPC )
+	{
+		CBaseEntity::SetAllowPrecache( bAllowPrecache );
+		ClientPrint( pPlayer, HUD_PRINTCONSOLE, "survival_spawn_zombie: could not create that class.\n" );
+		return;
+	}
+
+	pNPC->Precache();
+	DispatchSpawn( pNPC );
+
+	Vector vecForward;
+	pPlayer->EyeVectors( &vecForward );
+	Vector vecOrigin = pPlayer->GetAbsOrigin() + vecForward * 96.0f;
+	vecOrigin.z += 16.0f;
+
+	QAngle angSpawn = pPlayer->GetAbsAngles();
+	angSpawn.x = 0.0f;
+	angSpawn.z = 0.0f;
+	angSpawn.y += 180.0f;
+
+	pNPC->Teleport( &vecOrigin, &angSpawn, &vec3_origin );
+	UTIL_DropToFloor( pNPC, MASK_NPCSOLID );
+	pNPC->Activate();
+
+	CBaseEntity::SetAllowPrecache( bAllowPrecache );
+
+	char szMsg[96];
+	Q_snprintf( szMsg, sizeof( szMsg ), "Spawned %s\n", pszClass );
+	ClientPrint( pPlayer, HUD_PRINTCONSOLE, szMsg );
 }
 
 #endif
