@@ -1,8 +1,12 @@
 "GameInfo"
 {
-	game	"Supervivencia Paysandú"
-	title	"PAYSANDÚ"
-	title2	"supervivencia"
+	// Steam library name. ASCII so a UTF-8 reader and the window title agree.
+	game	"Supervivencia Paysandu"
+	// GameUI copies each byte of these to Unicode and draws ClientTitleFont.
+	// HL2MP.ttf has no alphabet; resource/ClientScheme.res uses Trebuchet MS.
+	// A Latin-1 or UTF-8 u-acute is not a letter on that path.
+	title	"SUPERVIVENCIA"
+	title2	"PAYSANDU"
 	type multiplayer_only
 	// Small window / Steam list icon. File is resource/icon.tga (32x32, uncompressed, top origin).
 	icon "resource/icon"
