@@ -2062,12 +2062,15 @@ void CHL2_Player::SurvivalNeeds_Reset( void )
 }
 
 ConVar sv_survival_needs_enabled( "sv_survival_needs_enabled", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Turn hunger, thirst and stamina decay on or off." );
-ConVar sv_survival_hunger_rate( "sv_survival_hunger_rate", "0.05", FCVAR_REPLICATED | FCVAR_NOTIFY, "Hunger lost per second." );
-ConVar sv_survival_thirst_rate( "sv_survival_thirst_rate", "0.08", FCVAR_REPLICATED | FCVAR_NOTIFY, "Thirst lost per second." );
-ConVar sv_survival_stamina_regen( "sv_survival_stamina_regen", "8", FCVAR_REPLICATED | FCVAR_NOTIFY, "Stamina regained per second while not sprinting." );
-ConVar sv_survival_stamina_drain_sprint( "sv_survival_stamina_drain_sprint", "12", FCVAR_REPLICATED | FCVAR_NOTIFY, "Stamina lost per second while sprinting." );
+ConVar sv_survival_hunger_rate( "sv_survival_hunger_rate", "0.04", FCVAR_REPLICATED | FCVAR_NOTIFY, "Hunger lost per second. About 40 minutes from full to empty." );
+ConVar sv_survival_thirst_rate( "sv_survival_thirst_rate", "0.07", FCVAR_REPLICATED | FCVAR_NOTIFY, "Thirst lost per second. Thirst falls faster than hunger." );
+ConVar sv_survival_stamina_regen( "sv_survival_stamina_regen", "10", FCVAR_REPLICATED | FCVAR_NOTIFY, "Stamina regained per second while not sprinting. Does not touch HEV suit power." );
+ConVar sv_survival_stamina_regen_starving( "sv_survival_stamina_regen_starving", "0", FCVAR_REPLICATED | FCVAR_NOTIFY, "Stamina regen per second while hunger or thirst is empty." );
+ConVar sv_survival_stamina_drain_sprint( "sv_survival_stamina_drain_sprint", "12", FCVAR_REPLICATED | FCVAR_NOTIFY, "Stamina lost per second while sprinting. Separate from HEV suit power." );
 ConVar sv_survival_stamina_sprint_min( "sv_survival_stamina_sprint_min", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Sprint is blocked at or below this stamina." );
-ConVar sv_survival_empty_damage( "sv_survival_empty_damage", "2", FCVAR_NOTIFY, "Damage applied each interval while hunger or thirst is empty." );
+ConVar sv_survival_hunger_damage( "sv_survival_hunger_damage", "2", FCVAR_NOTIFY, "Damage each interval while hunger is empty." );
+ConVar sv_survival_thirst_damage( "sv_survival_thirst_damage", "3", FCVAR_NOTIFY, "Damage each interval while thirst is empty." );
+ConVar sv_survival_empty_damage( "sv_survival_empty_damage", "0", FCVAR_NOTIFY, "Extra damage each interval if hunger or thirst is empty. Added on top of the split damage ConVars." );
 ConVar sv_survival_empty_damage_interval( "sv_survival_empty_damage_interval", "1", FCVAR_NOTIFY, "Seconds between empty-need damage ticks." );
 
 bool CHL2_Player::SurvivalNeeds_BlocksSprint( void )
@@ -2095,9 +2098,16 @@ void CHL2_Player::SurvivalNeeds_Update( void )
 
 	float flStamina = m_HL2Local.m_flStamina;
 	if ( m_HL2Local.m_bNewSprinting )
+	{
 		flStamina -= sv_survival_stamina_drain_sprint.GetFloat() * flDt;
+	}
 	else
-		flStamina += sv_survival_stamina_regen.GetFloat() * flDt;
+	{
+		float flRegen = sv_survival_stamina_regen.GetFloat();
+		if ( flHunger <= 0.0f || flThirst <= 0.0f )
+			flRegen = sv_survival_stamina_regen_starving.GetFloat();
+		flStamina += flRegen * flDt;
+	}
 	flStamina = clamp( flStamina, 0.0f, 100.0f );
 
 	m_HL2Local.m_flHunger = flHunger;
@@ -2117,6 +2127,10 @@ void CHL2_Player::SurvivalNeeds_Update( void )
 	m_flNextSurvivalDamageTime = gpGlobals->curtime + flInterval;
 
 	float flDamage = sv_survival_empty_damage.GetFloat();
+	if ( flHunger <= 0.0f )
+		flDamage += sv_survival_hunger_damage.GetFloat();
+	if ( flThirst <= 0.0f )
+		flDamage += sv_survival_thirst_damage.GetFloat();
 	DevMsg( "survival: %s empty-need tick hunger %.1f thirst %.1f damage %.1f\n",
 		GetPlayerName(), flHunger, flThirst, flDamage );
 
