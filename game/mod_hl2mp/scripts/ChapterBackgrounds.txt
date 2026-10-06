@@ -1,3 +1,5 @@
+// Main menu backdrop. GameUI loads materials/console/<name> and, on 16:9,
+// materials/console/<name>_widescreen.
 "chapters"
 {
 	1	"background01"

@@ -9,6 +9,8 @@ Cooperativo LAN sobre Half-Life 2: Deathmatch (Source SDK Base 2013 Multiplayer)
 3. Reinicia Steam. El mod aparece como **Supervivencia Paysandu**.
 4. Los dos PCs necesitan la misma carpeta del mod y el SDK Base.
 
+Al abrir el mod, el menú principal usa el fondo de la calle (`materials/console/background01`). En 16:9 entra `background01_widescreen`. El icono pequeño de Steam sigue en `resource/icon.tga` y `logo.png`.
+
 Los binarios de Linux van en `bin/linux64/client.so` y `bin/linux64/server.so`. En Windows hace falta compilar `client.dll` y `server.dll` con el SDK.
 
 ## Hostear en LAN (2 jugadores)
