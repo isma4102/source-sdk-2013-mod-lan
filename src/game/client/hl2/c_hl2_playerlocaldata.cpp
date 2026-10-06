@@ -17,6 +17,7 @@ BEGIN_RECV_TABLE_NOBASE( C_HL2PlayerLocalData, DT_HL2Local )
 	RecvPropFloat( RECVINFO(m_flHunger) ),
 	RecvPropFloat( RECVINFO(m_flThirst) ),
 	RecvPropFloat( RECVINFO(m_flStamina) ),
+	RecvPropArray3( RECVINFO_ARRAY(m_nInventorySlot), RecvPropInt( RECVINFO(m_nInventorySlot[0]) ) ),
 	RecvPropFloat( RECVINFO(m_flTimeAllSuitDevicesOff) ),
 	RecvPropInt( RECVINFO(m_bNewSprinting) ),
 	RecvPropInt( RECVINFO(m_bZooming) ),
@@ -59,6 +60,10 @@ C_HL2PlayerLocalData::C_HL2PlayerLocalData()
 	m_flHunger = 100.0f;
 	m_flThirst = 100.0f;
 	m_flStamina = 100.0f;
+	for ( int i = 0; i < SURVIVAL_INVENTORY_SLOTS; i++ )
+	{
+		m_nInventorySlot[i] = 0;
+	}
 	m_flTimeAllSuitDevicesOff = 0.0f;
 	m_bZooming = false;
 	m_bNewSprinting = false;

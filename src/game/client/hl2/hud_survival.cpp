@@ -9,6 +9,7 @@
 #include "hud_macros.h"
 #include "c_basehlplayer.h"
 #include "iclientmode.h"
+#include "hl2/survival_inventory.h"
 #include <vgui/ISurface.h>
 #include <vgui/IScheme.h>
 
@@ -95,11 +96,30 @@ void CHudSurvival::Paint()
 	if ( !pPlayer || !m_hFont )
 		return;
 
-	int nRowH = GetTall() / 3;
+	const int nInvH = 14;
+	int nRowH = ( GetTall() - nInvH ) / 3;
 	if ( nRowH < 12 )
 		nRowH = 12;
 
 	DrawNeed( 0, L"Hambre", pPlayer->m_HL2Local.m_flHunger, Color( 220, 140, 40, 255 ) );
 	DrawNeed( nRowH, L"Sed", pPlayer->m_HL2Local.m_flThirst, Color( 80, 170, 230, 255 ) );
 	DrawNeed( nRowH * 2, L"Stamina", pPlayer->m_HL2Local.m_flStamina, Color( 90, 200, 90, 255 ) );
+
+	int nFood = 0;
+	int nWater = 0;
+	for ( int i = 0; i < SURVIVAL_INVENTORY_SLOTS; i++ )
+	{
+		int nType = Survival_SlotType( pPlayer->m_HL2Local.m_nInventorySlot[i] );
+		if ( nType == SURVIVAL_ITEM_FOOD )
+			nFood++;
+		else if ( nType == SURVIVAL_ITEM_WATER )
+			nWater++;
+	}
+
+	wchar_t wszInv[64];
+	V_snwprintf( wszInv, ARRAYSIZE( wszInv ), L"Comida %d   Agua %d", nFood, nWater );
+	surface()->DrawSetTextFont( m_hFont );
+	surface()->DrawSetTextColor( Color( 230, 230, 230, 255 ) );
+	surface()->DrawSetTextPos( 0, nRowH * 3 );
+	surface()->DrawPrintText( wszInv, wcslen( wszInv ) );
 }

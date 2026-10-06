@@ -24,6 +24,7 @@ BEGIN_SEND_TABLE_NOBASE( CHL2PlayerLocalData, DT_HL2Local )
 	SendPropFloat( SENDINFO(m_flHunger), -1, SPROP_NOSCALE, 0.0, 100.0 ),
 	SendPropFloat( SENDINFO(m_flThirst), -1, SPROP_NOSCALE, 0.0, 100.0 ),
 	SendPropFloat( SENDINFO(m_flStamina), -1, SPROP_NOSCALE, 0.0, 100.0 ),
+	SendPropArray3( SENDINFO_ARRAY3(m_nInventorySlot), SendPropInt( SENDINFO_ARRAY(m_nInventorySlot), 16, SPROP_UNSIGNED ) ),
 	SendPropFloat( SENDINFO(m_flTimeAllSuitDevicesOff), -1, SPROP_NOSCALE ),
 	SendPropInt( SENDINFO(m_bNewSprinting), 1, SPROP_UNSIGNED ),
 	SendPropInt( SENDINFO(m_bZooming), 1, SPROP_UNSIGNED ),

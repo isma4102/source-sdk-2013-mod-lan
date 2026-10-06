@@ -314,12 +314,14 @@ static void CC_SurvivalDump( const CCommand & )
 		return;
 	}
 
-	Survival_Reply( pPlayer, UTIL_VarArgs( "survival_dump: %s (#%d) hunger %.2f thirst %.2f stamina %.2f\n",
+	Survival_Reply( pPlayer, UTIL_VarArgs( "survival_dump: %s (#%d) hunger %.2f thirst %.2f stamina %.2f food %d water %d\n",
 		pHL2Player->GetPlayerName(),
 		pHL2Player->entindex(),
 		pHL2Player->SurvivalNeeds_GetHunger(),
 		pHL2Player->SurvivalNeeds_GetThirst(),
-		pHL2Player->SurvivalNeeds_GetStamina() ) );
+		pHL2Player->SurvivalNeeds_GetStamina(),
+		pHL2Player->SurvivalInventory_CountType( SURVIVAL_ITEM_FOOD ),
+		pHL2Player->SurvivalInventory_CountType( SURVIVAL_ITEM_WATER ) ) );
 }
 
 static ConCommand survival_dump( "survival_dump", CC_SurvivalDump, "Print the calling player's server-side survival needs (hunger, thirst, stamina)." );
@@ -398,6 +400,49 @@ static void CC_SurvivalSet( const CCommand &args )
 }
 
 static ConCommand survival_set( "survival_set", CC_SurvivalSet, "Set one survival need on the calling player. Usage: survival_set <hunger|thirst|stamina> <0-100>", FCVAR_CHEAT );
+
+static void CC_SurvivalInventory( const CCommand & )
+{
+	CBasePlayer *pPlayer = UTIL_GetCommandClient();
+	CHL2_Player *pHL2Player = dynamic_cast<CHL2_Player *>( pPlayer );
+	if ( !pHL2Player )
+	{
+		Msg( "survival_inventory: must be run by a player.\n" );
+		return;
+	}
+
+	pHL2Player->SurvivalInventory_Dump( pPlayer );
+}
+
+static void CC_SurvivalEat( const CCommand & )
+{
+	CBasePlayer *pPlayer = UTIL_GetCommandClient();
+	CHL2_Player *pHL2Player = dynamic_cast<CHL2_Player *>( pPlayer );
+	if ( !pHL2Player )
+	{
+		Msg( "survival_eat: must be run by a player.\n" );
+		return;
+	}
+
+	pHL2Player->SurvivalInventory_ConsumeType( SURVIVAL_ITEM_FOOD );
+}
+
+static void CC_SurvivalDrink( const CCommand & )
+{
+	CBasePlayer *pPlayer = UTIL_GetCommandClient();
+	CHL2_Player *pHL2Player = dynamic_cast<CHL2_Player *>( pPlayer );
+	if ( !pHL2Player )
+	{
+		Msg( "survival_drink: must be run by a player.\n" );
+		return;
+	}
+
+	pHL2Player->SurvivalInventory_ConsumeType( SURVIVAL_ITEM_WATER );
+}
+
+static ConCommand survival_inventory( "survival_inventory", CC_SurvivalInventory, "List food and water in the calling player's backpack." );
+static ConCommand survival_eat( "survival_eat", CC_SurvivalEat, "Eat the first food item in the backpack. Bind a key: bind g survival_eat" );
+static ConCommand survival_drink( "survival_drink", CC_SurvivalDrink, "Drink the first water item in the backpack. Bind a key: bind h survival_drink" );
 
 #ifndef HL2MP
 #ifndef PORTAL
@@ -1317,6 +1362,7 @@ void CHL2_Player::Spawn(void)
 
 	// Hunger, thirst and stamina reset on every spawn, including respawn.
 	SurvivalNeeds_Reset();
+	SurvivalInventory_Clear();
 
 	m_Local.m_iHideHUD |= HIDEHUD_CHAT;
 
@@ -2124,6 +2170,101 @@ bool CHL2_Player::ApplyWater( float flAmount )
 
 	m_HL2Local.m_flThirst = clamp( m_HL2Local.m_flThirst + flAmount, 0.0f, 100.0f );
 	return true;
+}
+
+ConVar sv_survival_inventory_slots( "sv_survival_inventory_slots", "8", FCVAR_REPLICATED | FCVAR_NOTIFY, "Backpack slots for food and water. Clamped to 1-8." );
+
+void CHL2_Player::SurvivalInventory_Clear( void )
+{
+	for ( int i = 0; i < SURVIVAL_INVENTORY_SLOTS; i++ )
+	{
+		m_HL2Local.m_nInventorySlot.Set( i, Survival_PackSlot( SURVIVAL_ITEM_EMPTY, 0 ) );
+	}
+}
+
+int CHL2_Player::SurvivalInventory_CountType( int nType )
+{
+	int nCount = 0;
+	int nSlots = clamp( sv_survival_inventory_slots.GetInt(), 1, SURVIVAL_INVENTORY_SLOTS );
+	for ( int i = 0; i < nSlots; i++ )
+	{
+		if ( Survival_SlotType( m_HL2Local.m_nInventorySlot[i] ) == nType )
+			nCount++;
+	}
+	return nCount;
+}
+
+bool CHL2_Player::SurvivalInventory_Add( int nType, int nAmount )
+{
+	if ( nType != SURVIVAL_ITEM_FOOD && nType != SURVIVAL_ITEM_WATER )
+		return false;
+
+	if ( nAmount < 1 )
+		nAmount = 1;
+	if ( nAmount > 100 )
+		nAmount = 100;
+
+	int nSlots = clamp( sv_survival_inventory_slots.GetInt(), 1, SURVIVAL_INVENTORY_SLOTS );
+	for ( int i = 0; i < nSlots; i++ )
+	{
+		if ( Survival_SlotType( m_HL2Local.m_nInventorySlot[i] ) == SURVIVAL_ITEM_EMPTY )
+		{
+			m_HL2Local.m_nInventorySlot.Set( i, Survival_PackSlot( nType, nAmount ) );
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool CHL2_Player::SurvivalInventory_ConsumeType( int nType )
+{
+	int nSlots = clamp( sv_survival_inventory_slots.GetInt(), 1, SURVIVAL_INVENTORY_SLOTS );
+	for ( int i = 0; i < nSlots; i++ )
+	{
+		if ( Survival_SlotType( m_HL2Local.m_nInventorySlot[i] ) != nType )
+			continue;
+
+		int nAmount = Survival_SlotAmount( m_HL2Local.m_nInventorySlot[i] );
+		bool bApplied = ( nType == SURVIVAL_ITEM_FOOD ) ? ApplyFood( (float)nAmount ) : ApplyWater( (float)nAmount );
+		if ( !bApplied )
+		{
+			ClientPrint( this, HUD_PRINTCENTER, nType == SURVIVAL_ITEM_FOOD ? "Ya no tienes hambre" : "Ya no tienes sed" );
+			return false;
+		}
+
+		m_HL2Local.m_nInventorySlot.Set( i, Survival_PackSlot( SURVIVAL_ITEM_EMPTY, 0 ) );
+
+		char szMsg[64];
+		Q_snprintf( szMsg, sizeof( szMsg ), nType == SURVIVAL_ITEM_FOOD ? "Hambre +%d" : "Sed +%d", nAmount );
+		ClientPrint( this, HUD_PRINTCENTER, szMsg );
+		return true;
+	}
+
+	ClientPrint( this, HUD_PRINTCENTER, nType == SURVIVAL_ITEM_FOOD ? "No tienes comida" : "No tienes agua" );
+	return false;
+}
+
+void CHL2_Player::SurvivalInventory_Dump( CBasePlayer *pNotify )
+{
+	int nSlots = clamp( sv_survival_inventory_slots.GetInt(), 1, SURVIVAL_INVENTORY_SLOTS );
+	Survival_Reply( pNotify, UTIL_VarArgs( "survival_inventory: %d slots, food %d, water %d\n",
+		nSlots,
+		SurvivalInventory_CountType( SURVIVAL_ITEM_FOOD ),
+		SurvivalInventory_CountType( SURVIVAL_ITEM_WATER ) ) );
+
+	for ( int i = 0; i < nSlots; i++ )
+	{
+		int nPacked = m_HL2Local.m_nInventorySlot[i];
+		int nType = Survival_SlotType( nPacked );
+		const char *pszName = "empty";
+		if ( nType == SURVIVAL_ITEM_FOOD )
+			pszName = "food";
+		else if ( nType == SURVIVAL_ITEM_WATER )
+			pszName = "water";
+
+		Survival_Reply( pNotify, UTIL_VarArgs( "  slot %d: %s +%d\n", i, pszName, Survival_SlotAmount( nPacked ) ) );
+	}
 }
 
 

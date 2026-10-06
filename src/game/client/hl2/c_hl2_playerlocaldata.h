@@ -16,6 +16,7 @@
 #include "dt_recv.h"
 
 #include "hl2/hl_movedata.h"
+#include "hl2/survival_inventory.h"
 
 EXTERN_RECV_TABLE( DT_HL2Local );
 
@@ -36,6 +37,7 @@ public:
 	float	m_flHunger;
 	float	m_flThirst;
 	float	m_flStamina;
+	int		m_nInventorySlot[SURVIVAL_INVENTORY_SLOTS];
 
 	float	m_flTimeAllSuitDevicesOff;
 	bool	m_bNewSprinting;
