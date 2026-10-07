@@ -252,6 +252,17 @@
 		"tall"	"480"
 	}
 
+	HudSurvivalInventory
+	{
+		"fieldName" "HudSurvivalInventory"
+		"visible" "1"
+		"enabled" "1"
+		"xpos"	"0"
+		"ypos"	"0"
+		"wide"	"640"
+		"tall"	"480"
+	}
+
 	HudSuitPower [!$DECK]
 	{
 		"fieldName" "HudSuitPower"

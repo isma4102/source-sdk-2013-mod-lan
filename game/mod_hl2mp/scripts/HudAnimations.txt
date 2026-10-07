@@ -231,8 +231,9 @@ event HudTakeDamageDrown
 
 event HudTakeDamagePoison
 {
-	Animate HudDamageIndicator DmgFullscreenColor	"255 236 128 240"	Linear 0.0 0.0
-	Animate HudDamageIndicator DmgFullscreenColor	"255 236 128 0"		Deaccel 0.4 0.8
+	// Sanducero: soft infection tick flash (was bright yellow alpha 240).
+	Animate HudDamageIndicator DmgFullscreenColor	"170 150 40 48"	Linear 0.0 0.0
+	Animate HudDamageIndicator DmgFullscreenColor	"170 150 40 0"		Deaccel 0.9 1.8
 }
 
 event HudTakeDamageBurn

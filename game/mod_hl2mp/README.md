@@ -1,4 +1,4 @@
-# Supervivencia Paysandu
+# Sanducero (Supervivencia Paysandu)
 
 Cooperativo LAN sobre Half-Life 2: Deathmatch (Source SDK Base 2013 Multiplayer). Hambre, sed y stamina, mochila, zombies, cajas, día y noche. El mapa de Paysandú se hace aparte en Hammer; hasta entonces el mapa de prueba es `dm_lockdown`.
 
@@ -33,7 +33,7 @@ bind h survival_drink
 
 E (`+use`) guarda comida y agua en la mochila. Caminar encima no las consume. `survival_eat` y `survival_drink` gastan un slot. Al reaparecer, hambre, sed y stamina vuelven a 100 y la mochila se vacía.
 
-La barra de cansancio es stamina que queda: 100 es fresco y 90 sigue siendo casi lleno. El sprint no gasta la energía del traje HEV (`sv_survival_sprint_uses_suit 0`). Se gastan 5 puntos por segundo (`sv_survival_stamina_drain_sprint`): unos 11 s a velocidad plena. Por debajo de 45 (`sv_survival_stamina_slow_at`) la velocidad baja en línea hasta 0.75 en 0. El sprint se corta en 1 (`sv_survival_stamina_sprint_min`). Quieto se recupera a 10/s. Con hambre o sed en 0 no se regenera y el jugador recibe daño. `sv_survival_sprint_uses_suit 1` devuelve el corte por el traje.
+La barra de cansancio es stamina que queda: 100 es fresco y 90 sigue siendo casi lleno. El sprint no gasta la energía del traje HEV (`sv_survival_sprint_uses_suit 0`). Se gastan 14.3 puntos por segundo (`sv_survival_stamina_drain_sprint`): la barra se vacía en unos 7 s de sprint. Por debajo de 45 (`sv_survival_stamina_slow_at`) la velocidad baja en línea hasta 0.75 en 0. El sprint se corta en 1 (`sv_survival_stamina_sprint_min`). Quieto se recupera a 10/s. Con hambre o sed en 0 no se regenera y el jugador recibe daño. `sv_survival_sprint_uses_suit 1` devuelve el corte por el traje.
 
 ## Arsenal
 
@@ -149,9 +149,15 @@ bind h survival_drink
 bind j survival_give
 bind n survival_antidote
 bind k survival_horn
+bind i survival_inv
+bind F10 toggleconsole
 ```
 
-`autoexec.cfg` las vuelve a aplicar al abrir el mod. El arranque sigue entregando palanca y el arsenal realista de la Fase 11; el sprint sigue en las ConVars de la Fase 18.
+`autoexec.cfg` las vuelve a aplicar al abrir el mod. Desde la Fase 20 el arranque entrega solo el traje y la palanca; las armas y la munición se recogen en el mapa. El sprint gasta 14.3/s.
+
+## Mochila (Fase 20)
+
+La mochila tiene 12 huecos (`sv_survival_inventory_slots`). `I` (`survival_inv`) abre el panel: clic o las teclas 1-9, 0, - y = usan el hueco (`survival_use_slot N`). Guarda comida, agua, antídoto y chatarra. `item_antidote` (vial) e `item_survival_antidote` (batería) son el mismo antídoto; se usa desde el panel, con `N` (`survival_antidote`) o con `survival_use_antidote`. La chatarra (`item_junk_can`, `item_junk_paper`, `item_junk_radio`, `item_junk_rag`, `item_junk_bottle`) ocupa lugar y no sirve. `survival_give` y el alijo solo mueven comida, agua y antídoto. Los zombis rápidos pegan como `npc_zombie` y también infectan. `vehicle_jeep.cpp` entra en el servidor; `scripts/vehicles/jeep_test.txt` es el script de prueba.
 
 ## Ambiente
 

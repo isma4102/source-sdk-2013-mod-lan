@@ -1,6 +1,6 @@
 //========= Copyright Valve Corporation, All rights reserved. ============//
 //
-// Purpose: Food and water picked up with +use (E) into the backpack. Walking into them does nothing.
+// Purpose: Food, water, antidote and junk picked up with +use (E) into the backpack. Walking into them does nothing.
 //
 //=============================================================================//
 
@@ -36,6 +36,7 @@ public:
 
 protected:
 	bool TryPickup( CBaseEntity *pActivator, bool bFood );
+	bool TryPickupType( CBaseEntity *pActivator, int nType );
 	float m_flRestoreAmount;
 };
 
@@ -45,6 +46,11 @@ END_DATADESC()
 
 bool CItemSurvivalConsumable::TryPickup( CBaseEntity *pActivator, bool bFood )
 {
+	return TryPickupType( pActivator, bFood ? SURVIVAL_ITEM_FOOD : SURVIVAL_ITEM_WATER );
+}
+
+bool CItemSurvivalConsumable::TryPickupType( CBaseEntity *pActivator, int nType )
+{
 	CHL2_Player *pPlayer = dynamic_cast<CHL2_Player *>( ToBasePlayer( pActivator ) );
 	if ( !pPlayer || !pPlayer->IsAlive() )
 		return false;
@@ -53,17 +59,35 @@ bool CItemSurvivalConsumable::TryPickup( CBaseEntity *pActivator, bool bFood )
 	if ( nAmount <= 0 )
 		nAmount = 25;
 
-	if ( !pPlayer->SurvivalInventory_Add( bFood ? SURVIVAL_ITEM_FOOD : SURVIVAL_ITEM_WATER, nAmount ) )
+	if ( nType == SURVIVAL_ITEM_ANTIDOTE || Survival_IsJunkItem( nType ) )
+		nAmount = 1;
+
+	if ( !pPlayer->SurvivalInventory_Add( nType, nAmount ) )
 	{
 		ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_BackpackFull" );
 		return false;
 	}
 
-	const char *pszSound = bFood ? "HealthKit.Touch" : "HealthVial.Touch";
+	const char *pszSound = "ItemBattery.Touch";
+	if ( nType == SURVIVAL_ITEM_FOOD )
+		pszSound = "HealthKit.Touch";
+	else if ( nType == SURVIVAL_ITEM_WATER || nType == SURVIVAL_ITEM_ANTIDOTE )
+		pszSound = "HealthVial.Touch";
+
 	CPASAttenuationFilter filter( pPlayer, pszSound );
 	EmitSound( filter, pPlayer->entindex(), pszSound );
 
-	ClientPrint( pPlayer, HUD_PRINTCENTER, bFood ? "#Survival_FoodStored" : "#Survival_WaterStored" );
+	const char *pszMsg = "#Survival_ItemStored";
+	if ( nType == SURVIVAL_ITEM_FOOD )
+		pszMsg = "#Survival_FoodStored";
+	else if ( nType == SURVIVAL_ITEM_WATER )
+		pszMsg = "#Survival_WaterStored";
+	else if ( nType == SURVIVAL_ITEM_ANTIDOTE )
+		pszMsg = "#Survival_AntidoteStored";
+	else if ( Survival_IsJunkItem( nType ) )
+		pszMsg = "#Survival_JunkStored";
+
+	ClientPrint( pPlayer, HUD_PRINTCENTER, pszMsg );
 	UTIL_Remove( this );
 	return true;
 }
@@ -122,46 +146,142 @@ public:
 LINK_ENTITY_TO_CLASS( item_water, CItemWater );
 PRECACHE_REGISTER( item_water );
 
-class CItemSurvivalAntidote : public CItemSurvivalConsumable
+
+class CItemAntidote : public CItemSurvivalConsumable
 {
 public:
-	DECLARE_CLASS( CItemSurvivalAntidote, CItemSurvivalConsumable );
+	DECLARE_CLASS( CItemAntidote, CItemSurvivalConsumable );
 
 	void Spawn( void )
 	{
 		Precache();
-		SetModel( "models/items/battery.mdl" );
+		SetModel( "models/healthvial.mdl" );
 		BaseClass::Spawn();
 	}
 
 	void Precache( void )
 	{
-		PrecacheModel( "models/items/battery.mdl" );
+		PrecacheModel( "models/healthvial.mdl" );
+		PrecacheScriptSound( "HealthVial.Touch" );
+	}
+
+	void Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
+	{
+		TryPickupType( pActivator, SURVIVAL_ITEM_ANTIDOTE );
+	}
+};
+
+LINK_ENTITY_TO_CLASS( item_antidote, CItemAntidote );
+PRECACHE_REGISTER( item_antidote );
+
+//-----------------------------------------------------------------------------
+// Junk / filler pickups. Stored in the backpack; using them does nothing useful.
+//-----------------------------------------------------------------------------
+class CItemSurvivalJunk : public CItemSurvivalConsumable
+{
+public:
+	DECLARE_CLASS( CItemSurvivalJunk, CItemSurvivalConsumable );
+
+	CItemSurvivalJunk()
+	{
+		m_nJunkType = SURVIVAL_ITEM_CAN;
+		m_pszModel = "models/props_junk/garbage_metalcan001a.mdl";
+	}
+
+	void Spawn( void )
+	{
+		Precache();
+		SetModel( m_pszModel );
+		BaseClass::Spawn();
+	}
+
+	void Precache( void )
+	{
+		PrecacheModel( m_pszModel );
 		PrecacheScriptSound( "ItemBattery.Touch" );
 	}
 
 	void Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
 	{
-		CHL2_Player *pPlayer = dynamic_cast<CHL2_Player *>( ToBasePlayer( pActivator ) );
-		if ( !pPlayer || !pPlayer->IsAlive() )
-			return;
+		TryPickupType( pActivator, m_nJunkType );
+	}
 
-		if ( !pPlayer->SurvivalInventory_Add( SURVIVAL_ITEM_ANTIDOTE, 100 ) )
-		{
-			ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_BackpackFull" );
-			return;
-		}
+protected:
+	int m_nJunkType;
+	const char *m_pszModel;
+};
 
-		CPASAttenuationFilter filter( pPlayer, "ItemBattery.Touch" );
-		EmitSound( filter, pPlayer->entindex(), "ItemBattery.Touch" );
-		ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_AntidoteStored" );
-		UTIL_Remove( this );
+class CItemJunkCan : public CItemSurvivalJunk
+{
+public:
+	DECLARE_CLASS( CItemJunkCan, CItemSurvivalJunk );
+	CItemJunkCan() { m_nJunkType = SURVIVAL_ITEM_CAN; m_pszModel = "models/props_junk/garbage_metalcan001a.mdl"; }
+};
+LINK_ENTITY_TO_CLASS( item_junk_can, CItemJunkCan );
+PRECACHE_REGISTER( item_junk_can );
+
+class CItemJunkPaper : public CItemSurvivalJunk
+{
+public:
+	DECLARE_CLASS( CItemJunkPaper, CItemSurvivalJunk );
+	CItemJunkPaper() { m_nJunkType = SURVIVAL_ITEM_PAPER; m_pszModel = "models/props_junk/garbage_newspaper001a.mdl"; }
+};
+LINK_ENTITY_TO_CLASS( item_junk_paper, CItemJunkPaper );
+PRECACHE_REGISTER( item_junk_paper );
+
+class CItemJunkRadio : public CItemSurvivalJunk
+{
+public:
+	DECLARE_CLASS( CItemJunkRadio, CItemSurvivalJunk );
+	CItemJunkRadio() { m_nJunkType = SURVIVAL_ITEM_RADIO; m_pszModel = "models/props_lab/citizenradio.mdl"; }
+};
+LINK_ENTITY_TO_CLASS( item_junk_radio, CItemJunkRadio );
+PRECACHE_REGISTER( item_junk_radio );
+
+class CItemJunkRag : public CItemSurvivalJunk
+{
+public:
+	DECLARE_CLASS( CItemJunkRag, CItemSurvivalJunk );
+	CItemJunkRag() { m_nJunkType = SURVIVAL_ITEM_RAG; m_pszModel = "models/props_junk/garbage_takeoutcarton001a.mdl"; }
+};
+LINK_ENTITY_TO_CLASS( item_junk_rag, CItemJunkRag );
+PRECACHE_REGISTER( item_junk_rag );
+
+class CItemJunkBottle : public CItemSurvivalJunk
+{
+public:
+	DECLARE_CLASS( CItemJunkBottle, CItemSurvivalJunk );
+	CItemJunkBottle() { m_nJunkType = SURVIVAL_ITEM_BOTTLE; m_pszModel = "models/props_junk/garbage_plasticbottle001a.mdl"; }
+};
+LINK_ENTITY_TO_CLASS( item_junk_bottle, CItemJunkBottle );
+PRECACHE_REGISTER( item_junk_bottle );
+
+//-----------------------------------------------------------------------------
+// Fase 19 name for the same antidote. Same pickup and backpack slot as
+// item_antidote; only the world model (HEV battery) differs so maps made
+// with sanducero.fgd keep their look.
+//-----------------------------------------------------------------------------
+class CItemSurvivalAntidote : public CItemAntidote
+{
+public:
+	DECLARE_CLASS( CItemSurvivalAntidote, CItemAntidote );
+
+	void Spawn( void )
+	{
+		Precache();
+		SetModel( "models/items/battery.mdl" );
+		CItemSurvivalConsumable::Spawn();
+	}
+
+	void Precache( void )
+	{
+		PrecacheModel( "models/items/battery.mdl" );
+		PrecacheScriptSound( "HealthVial.Touch" );
 	}
 };
 
 LINK_ENTITY_TO_CLASS( item_survival_antidote, CItemSurvivalAntidote );
 PRECACHE_REGISTER( item_survival_antidote );
-
 class CSurvivalCrate : public CBaseAnimating
 {
 public:

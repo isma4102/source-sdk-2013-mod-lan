@@ -34,6 +34,11 @@
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
+// Sanducero: same claw damage (and thus infection) as npc_zombie.
+extern ConVar sk_zombie_dmg_one_slash;
+extern ConVar sk_zombie_dmg_both_slash;
+
+
 #define FASTZOMBIE_IDLE_PITCH			35
 #define FASTZOMBIE_MIN_PITCH			70
 #define FASTZOMBIE_MAX_PITCH			130
@@ -1084,7 +1089,7 @@ void CFastZombie::HandleAnimEvent( animevent_t *pEvent )
 		right = right * -50;
 
 		QAngle angle( -3, -5, -3  );
-		ClawAttack( GetClawAttackRange(), 3, angle, right, ZOMBIE_BLOOD_RIGHT_HAND );
+		ClawAttack( GetClawAttackRange(), sk_zombie_dmg_one_slash.GetFloat(), angle, right, ZOMBIE_BLOOD_RIGHT_HAND );
 		return;
 	}
 
@@ -1094,7 +1099,7 @@ void CFastZombie::HandleAnimEvent( animevent_t *pEvent )
 		AngleVectors( GetLocalAngles(), NULL, &right, NULL );
 		right = right * 50;
 		QAngle angle( -3, 5, -3 );
-		ClawAttack( GetClawAttackRange(), 3, angle, right, ZOMBIE_BLOOD_LEFT_HAND );
+		ClawAttack( GetClawAttackRange(), sk_zombie_dmg_one_slash.GetFloat(), angle, right, ZOMBIE_BLOOD_LEFT_HAND );
 		return;
 	}
 
@@ -1480,7 +1485,7 @@ void CFastZombie::LeapAttackTouch( CBaseEntity *pOther )
 	forward *= 500;
 	QAngle qaPunch( 15, random->RandomInt(-5,5), random->RandomInt(-5,5) );
 	
-	ClawAttack( GetClawAttackRange(), 5, qaPunch, forward, ZOMBIE_BLOOD_BOTH_HANDS );
+	ClawAttack( GetClawAttackRange(), sk_zombie_dmg_both_slash.GetFloat(), qaPunch, forward, ZOMBIE_BLOOD_BOTH_HANDS );
 
 	SetTouch( NULL );
 }

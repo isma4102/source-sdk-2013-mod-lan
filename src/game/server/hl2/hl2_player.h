@@ -168,6 +168,7 @@ public:
 	int SurvivalInventory_CountType( int nType );
 	bool SurvivalInventory_Add( int nType, int nAmount );
 	bool SurvivalInventory_ConsumeType( int nType );
+	bool SurvivalInventory_ConsumeSlot( int nSlot );
 	void SurvivalInventory_Dump( CBasePlayer *pNotify );
 	// nPreferredType 0 takes food, then water, then antidote.
 	bool SurvivalInventory_RemoveFirst( int nPreferredType, int &nOutType, int &nOutAmount );

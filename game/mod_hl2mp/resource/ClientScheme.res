@@ -62,7 +62,7 @@ Scheme
 		"Normal"			"255 208 64 255"
 		"Caution"			"255 48 0 255"
 
-		// Stacked menu title: title = SUPERVIVENCIA, title2 = PAYSANDU.
+		// Menu title: title = SANDUCERO (title2 blank).
 		"Main.Title1.X"		"76"
 		"Main.Title1.Y"		"150"
 		"Main.Title1.Color"	"255 255 255 255"
@@ -248,7 +248,7 @@ Scheme
 
 		"ProgressBarFg"			"255 30 13 255"
 
-		// Same stacked title if this later copy of the keys is the one the scheme keeps.
+		// Same menu title keys if this later copy is the one the scheme keeps.
 		"Main.Title1.X"		"32"
 		"Main.Title1.Y"		"150"
 		"Main.Title1.Color"	"255 255 255 255"

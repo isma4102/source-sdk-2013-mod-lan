@@ -61,3 +61,27 @@
 @PointClass base(Targetname) studio("models/items/battery.mdl") = item_survival_antidote : "Antidoto de la mochila. +use lo guarda. survival_antidote lo usa y baja la infeccion a 0."
 [
 ]
+
+@PointClass base(Targetname) studio("models/healthvial.mdl") = item_antidote : "Antidoto (fase 20). Igual que item_survival_antidote, con el modelo del vial. +use lo guarda; se usa desde la mochila (I), survival_antidote o survival_use_antidote."
+[
+]
+
+@PointClass base(Targetname) studio("models/props_junk/garbage_metalcan001a.mdl") = item_junk_can : "Chatarra: lata vacia. +use la guarda en la mochila. No sirve para nada."
+[
+]
+
+@PointClass base(Targetname) studio("models/props_junk/garbage_newspaper001a.mdl") = item_junk_paper : "Chatarra: papel roto."
+[
+]
+
+@PointClass base(Targetname) studio("models/props_lab/citizenradio.mdl") = item_junk_radio : "Chatarra: radio rota."
+[
+]
+
+@PointClass base(Targetname) studio("models/props_junk/garbage_takeoutcarton001a.mdl") = item_junk_rag : "Chatarra: trapo sucio."
+[
+]
+
+@PointClass base(Targetname) studio("models/props_junk/garbage_plasticbottle001a.mdl") = item_junk_bottle : "Chatarra: botella vacia."
+[
+]

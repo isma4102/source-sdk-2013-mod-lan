@@ -222,34 +222,11 @@ void CHL2MP_Player::GiveAllItems( void )
 
 void CHL2MP_Player::GiveDefaultItems( void )
 {
+	// Sanducero: spawn with crowbar + suit only. Guns/ammo are map pickups.
 	EquipSuit();
 
-	CBasePlayer::GiveAmmo( 255,	"Pistol");
-	CBasePlayer::GiveAmmo( 45,	"SMG1");
-	CBasePlayer::GiveAmmo( 1,	"smg1_grenade" );
-	CBasePlayer::GiveAmmo( 1,	"grenade" );
-	CBasePlayer::GiveAmmo( 6,	"Buckshot");
-	CBasePlayer::GiveAmmo( 6,	"357" );
-
 	GiveNamedItem( "weapon_crowbar" );
-	GiveNamedItem( "weapon_pistol" );
-	GiveNamedItem( "weapon_shotgun" );
-	GiveNamedItem( "weapon_smg1" );
-	GiveNamedItem( "weapon_357" );
-	GiveNamedItem( "weapon_frag" );
-
-	const char *szDefaultWeaponName = engine->GetClientConVarValue( engine->IndexOfEdict( edict() ), "cl_defaultweapon" );
-
-	CBaseCombatWeapon *pDefaultWeapon = Weapon_OwnsThisType( szDefaultWeaponName );
-
-	if ( pDefaultWeapon )
-	{
-		Weapon_Switch( pDefaultWeapon );
-	}
-	else
-	{
-		Weapon_Switch( Weapon_OwnsThisType( "weapon_pistol" ) );
-	}
+	Weapon_Switch( Weapon_OwnsThisType( "weapon_crowbar" ) );
 }
 
 void CHL2MP_Player::PickDefaultSpawnTeam( void )
