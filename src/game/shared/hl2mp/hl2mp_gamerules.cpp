@@ -105,10 +105,14 @@ BEGIN_NETWORK_TABLE_NOBASE( CHL2MPRules, DT_HL2MPRules )
 		RecvPropBool( RECVINFO( m_bTeamPlayEnabled ) ),
 		RecvPropFloat( RECVINFO( m_flSurvivalClock ) ),
 		RecvPropInt( RECVINFO( m_nSurvivalDay ) ),
+		RecvPropBool( RECVINFO( m_bSafehouseClaimed ) ),
+		RecvPropVector( RECVINFO( m_vecSafehouseOrigin ) ),
 	#else
 		SendPropBool( SENDINFO( m_bTeamPlayEnabled ) ),
 		SendPropFloat( SENDINFO( m_flSurvivalClock ), 12, SPROP_ROUNDDOWN, 0.0f, 24.0f ),
 		SendPropInt( SENDINFO( m_nSurvivalDay ), 12, SPROP_UNSIGNED ),
+		SendPropBool( SENDINFO( m_bSafehouseClaimed ) ),
+		SendPropVector( SENDINFO( m_vecSafehouseOrigin ), -1, SPROP_COORD ),
 	#endif
 
 END_NETWORK_TABLE()
@@ -233,6 +237,8 @@ CHL2MPRules::CHL2MPRules()
 {
 	m_flSurvivalClock = 8.0f;
 	m_nSurvivalDay = 1;
+	m_bSafehouseClaimed = false;
+	m_vecSafehouseOrigin = vec3_origin;
 #ifndef CLIENT_DLL
 	// Create the team managers
 	for ( int i = 0; i < ARRAYSIZE( sTeamNames ); i++ )
@@ -913,6 +919,20 @@ int CHL2MPRules::PlayerRelationship( CBaseEntity *pPlayer, CBaseEntity *pTarget 
 }
 
 #ifndef CLIENT_DLL
+ConVar sv_survival_bed_heal( "sv_survival_bed_heal", "15", FCVAR_NOTIFY, "Health restored by survival_bed and survival_cot. 0 disables the heal. Stamina still resets." );
+
+static void Survival_ApplyBedHeal( CHL2_Player *pHL2 )
+{
+	if ( !pHL2 )
+		return;
+
+	int nHeal = sv_survival_bed_heal.GetInt();
+	if ( nHeal <= 0 )
+		return;
+
+	pHL2->TakeHealth( (float)nHeal, DMG_GENERIC );
+}
+
 void CHL2MPRules::Survival_Sleep( CBasePlayer *pPlayer )
 {
 	CHL2_Player *pHL2 = dynamic_cast<CHL2_Player *>( pPlayer );
@@ -920,6 +940,7 @@ void CHL2MPRules::Survival_Sleep( CBasePlayer *pPlayer )
 		return;
 
 	pHL2->Survival_Rest();
+	Survival_ApplyBedHeal( pHL2 );
 
 	float flRestore = sv_survival_sleep_restore.GetFloat();
 	pHL2->ApplyFood( flRestore );
@@ -938,6 +959,23 @@ void CHL2MPRules::Survival_Sleep( CBasePlayer *pPlayer )
 	color32 black = { 0, 0, 0, 255 };
 	UTIL_ScreenFade( pHL2, black, 1.0f, 0.6f, FFADE_IN );
 	ClientPrint( pHL2, HUD_PRINTCENTER, bNight ? "#Survival_SleepDawn" : "#Survival_SleepRest" );
+}
+
+void CHL2MPRules::Survival_RestBrief( CBasePlayer *pPlayer )
+{
+	CHL2_Player *pHL2 = dynamic_cast<CHL2_Player *>( pPlayer );
+	if ( !pHL2 || !pHL2->IsAlive() || pHL2->Survival_IsDowned() )
+		return;
+
+	pHL2->Survival_Rest();
+	Survival_ApplyBedHeal( pHL2 );
+	ClientPrint( pHL2, HUD_PRINTCENTER, "#Survival_RestHeal" );
+}
+
+void CHL2MPRules::Survival_SetSafehouse( const Vector &vecOrigin )
+{
+	m_bSafehouseClaimed = true;
+	m_vecSafehouseOrigin = vecOrigin;
 }
 
 bool CHL2MPRules::IsAllowedToSpawn( CBaseEntity *pEntity )
@@ -1153,7 +1191,9 @@ void CHL2MPRules::RestartGame()
 
 	m_flSurvivalClock = 8.0f;
 	m_nSurvivalDay = 1;
-	
+	m_bSafehouseClaimed = false;
+	m_vecSafehouseOrigin = vec3_origin;
+
 	// now respawn all players
 	for (int i = 1; i <= gpGlobals->maxClients; i++ )
 	{

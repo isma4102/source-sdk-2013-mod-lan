@@ -122,6 +122,46 @@ public:
 LINK_ENTITY_TO_CLASS( item_water, CItemWater );
 PRECACHE_REGISTER( item_water );
 
+class CItemSurvivalAntidote : public CItemSurvivalConsumable
+{
+public:
+	DECLARE_CLASS( CItemSurvivalAntidote, CItemSurvivalConsumable );
+
+	void Spawn( void )
+	{
+		Precache();
+		SetModel( "models/items/battery.mdl" );
+		BaseClass::Spawn();
+	}
+
+	void Precache( void )
+	{
+		PrecacheModel( "models/items/battery.mdl" );
+		PrecacheScriptSound( "ItemBattery.Touch" );
+	}
+
+	void Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
+	{
+		CHL2_Player *pPlayer = dynamic_cast<CHL2_Player *>( ToBasePlayer( pActivator ) );
+		if ( !pPlayer || !pPlayer->IsAlive() )
+			return;
+
+		if ( !pPlayer->SurvivalInventory_Add( SURVIVAL_ITEM_ANTIDOTE, 100 ) )
+		{
+			ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_BackpackFull" );
+			return;
+		}
+
+		CPASAttenuationFilter filter( pPlayer, "ItemBattery.Touch" );
+		EmitSound( filter, pPlayer->entindex(), "ItemBattery.Touch" );
+		ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_AntidoteStored" );
+		UTIL_Remove( this );
+	}
+};
+
+LINK_ENTITY_TO_CLASS( item_survival_antidote, CItemSurvivalAntidote );
+PRECACHE_REGISTER( item_survival_antidote );
+
 class CSurvivalCrate : public CBaseAnimating
 {
 public:

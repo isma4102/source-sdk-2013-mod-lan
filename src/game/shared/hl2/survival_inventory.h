@@ -10,9 +10,11 @@
 #endif
 
 #define SURVIVAL_INVENTORY_SLOTS	8
+#define SURVIVAL_STASH_SLOTS		8
 #define SURVIVAL_ITEM_EMPTY			0
 #define SURVIVAL_ITEM_FOOD			1
 #define SURVIVAL_ITEM_WATER			2
+#define SURVIVAL_ITEM_ANTIDOTE		3
 
 inline int Survival_PackSlot( int nType, int nAmount )
 {
