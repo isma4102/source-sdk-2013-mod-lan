@@ -117,8 +117,12 @@ public:
 	virtual const char *GetGameDescription( void );
 	float Survival_GetHour( void ) const { return m_flSurvivalClock; }
 	int Survival_GetDay( void ) const { return m_nSurvivalDay; }
+	bool Survival_HasSafehouse( void ) const { return m_bSafehouseClaimed; }
+	Vector Survival_GetSafehouseOrigin( void ) const { return m_vecSafehouseOrigin; }
 #ifndef CLIENT_DLL
 	void Survival_Sleep( CBasePlayer *pPlayer );
+	void Survival_RestBrief( CBasePlayer *pPlayer );
+	void Survival_SetSafehouse( const Vector &vecOrigin );
 #endif
 	// derive this function if you mod uses encrypted weapon info files
 	virtual const unsigned char *GetEncryptionKey( void ) { return (unsigned char *)"x9Ke0BY7"; }
@@ -169,6 +173,9 @@ private:
 	CNetworkVar( float, m_flGameStartTime );
 	CNetworkVar( float, m_flSurvivalClock );
 	CNetworkVar( int, m_nSurvivalDay );
+	// Claimed safehouse marker for the client radar. Reset with the day counter.
+	CNetworkVar( bool, m_bSafehouseClaimed );
+	CNetworkVar( Vector, m_vecSafehouseOrigin );
 	CUtlVector<EHANDLE> m_hRespawnableItemsAndWeapons;
 	float m_tmNextPeriodicThink;
 	float m_flRestartGameTime;

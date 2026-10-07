@@ -255,6 +255,33 @@ public:
 };
 LINK_ENTITY_TO_CLASS( item_junk_bottle, CItemJunkBottle );
 PRECACHE_REGISTER( item_junk_bottle );
+
+//-----------------------------------------------------------------------------
+// Fase 19 name for the same antidote. Same pickup and backpack slot as
+// item_antidote; only the world model (HEV battery) differs so maps made
+// with sanducero.fgd keep their look.
+//-----------------------------------------------------------------------------
+class CItemSurvivalAntidote : public CItemAntidote
+{
+public:
+	DECLARE_CLASS( CItemSurvivalAntidote, CItemAntidote );
+
+	void Spawn( void )
+	{
+		Precache();
+		SetModel( "models/items/battery.mdl" );
+		CItemSurvivalConsumable::Spawn();
+	}
+
+	void Precache( void )
+	{
+		PrecacheModel( "models/items/battery.mdl" );
+		PrecacheScriptSound( "HealthVial.Touch" );
+	}
+};
+
+LINK_ENTITY_TO_CLASS( item_survival_antidote, CItemSurvivalAntidote );
+PRECACHE_REGISTER( item_survival_antidote );
 class CSurvivalCrate : public CBaseAnimating
 {
 public:

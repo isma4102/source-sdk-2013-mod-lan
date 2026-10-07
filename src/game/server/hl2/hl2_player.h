@@ -159,6 +159,8 @@ public:
 	void Survival_OnSprintNoise( void );
 	void Survival_OnUseNoise( void );
 	void Survival_OnWeaponNoise( CBaseCombatWeapon *pWeapon );
+	void Survival_OnFootstepNoise( float flVolume );
+	virtual void OnEmitFootstepSound( const CSoundParameters &params, const Vector &vecOrigin, float fVolume );
 	void Survival_ApplyDownedMove( CMoveData *mv );
 	bool ApplyFood( float flAmount );
 	bool ApplyWater( float flAmount );
@@ -168,6 +170,9 @@ public:
 	bool SurvivalInventory_ConsumeType( int nType );
 	bool SurvivalInventory_ConsumeSlot( int nSlot );
 	void SurvivalInventory_Dump( CBasePlayer *pNotify );
+	// nPreferredType 0 takes food, then water, then antidote.
+	bool SurvivalInventory_RemoveFirst( int nPreferredType, int &nOutType, int &nOutAmount );
+	void Survival_GiveItem( const char *pszWhich );
 	bool SuitPower_IsDeviceActive( const CSuitPowerDevice &device );
 	bool SuitPower_AddDevice( const CSuitPowerDevice &device );
 	bool SuitPower_RemoveDevice( const CSuitPowerDevice &device );
@@ -404,8 +409,16 @@ private:
 	friend class CHL2GameMovement;
 };
 
-// Wake zombies inside flRadius. Coalesced by sv_survival_noise_cooldown.
-void Survival_EmitNoise( const Vector &vecOrigin, float flRadius, CBaseEntity *pOwner );
+// Wake zombies (and, if enabled, headcrabs) inside flRadius.
+// flIntensity is aggro strength: at or above sv_survival_noise_aggro_intensity
+// a noise can pull an NPC off a far target. sv_survival_noise_intensity scales radius.
+// Coalesced by sv_survival_noise_cooldown unless the new pulse is louder.
+// Nodeless chase still runs: SetEnemy goes through CAI_Navigator::DoFindPathToPos.
+void Survival_EmitNoise( const Vector &vecOrigin, float flRadius, CBaseEntity *pOwner, float flIntensity = 1.0f );
+void Survival_OnVehicleNoise( const Vector &vecOrigin, CBasePlayer *pDriver, float flSpeedMph, int nButtons, int nButtonsDown );
+bool Survival_IsZombieEntity( CBaseEntity *pEnt );
+bool Survival_IsHeadcrabEntity( CBaseEntity *pEnt );
+const char *Survival_ItemToken( int nType );
 
 
 //-----------------------------------------------------------------------------

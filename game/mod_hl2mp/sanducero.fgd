@@ -1,0 +1,87 @@
+// Sanducero / Supervivencia Paysandu
+// Hammer: include this FGD on top of the HL2MP FGD.
+// These are point and brush classes. This file does not ship a map.
+
+@PointClass base(Targetname) iconsprite("editor/info_target.vmt") = info_survival_safehouse : "Refugio reclamable. El jugador dentro del radio ejecuta survival_claim_safehouse."
+[
+	radius(float) : "Radio" : 384 : "Unidades. El jugador tiene que estar dentro."
+	require_clear(choices) : "Exigir zona limpia" : 1 =
+	[
+		0 : "No"
+		1 : "Si"
+	]
+	door(target_destination) : "Puerta 1" : : "Nombre de un func_door o func_door_rotating. Recibe Lock."
+	door2(target_destination) : "Puerta 2" : ""
+	close_doors(choices) : "Cerrar al reclamar" : 0 =
+	[
+		0 : "No"
+		1 : "Si"
+	]
+	input Claim(void) : "Reclamar. El activador, si es jugador, recibe el mensaje."
+	output OnClaimed(void) : "Se reclamo. Conectar a un logic_relay para cerrar brush que este codigo no puede crear."
+	output OnClaimFailed(void) : "Habia infectados dentro, o el reclamo no se completo."
+]
+
+@SolidClass base(Targetname) = trigger_survival_safehouse : "Volumen de refugio. El jugador dentro ejecuta survival_claim_safehouse. El brush lo pone el mapa."
+[
+	require_clear(choices) : "Exigir zona limpia" : 1 =
+	[
+		0 : "No"
+		1 : "Si"
+	]
+	door(target_destination) : "Puerta 1" : ""
+	door2(target_destination) : "Puerta 2" : ""
+	close_doors(choices) : "Cerrar al reclamar" : 0 =
+	[
+		0 : "No"
+		1 : "Si"
+	]
+	input Claim(void) : "Reclamar."
+	output OnClaimed(void) : "Se reclamo."
+	output OnClaimFailed(void) : "Habia infectados dentro."
+]
+
+@PointClass base(Targetname) studio("models/props_junk/wood_crate001a.mdl") = survival_stash : "Alijo. +use saca un objeto. survival_stash_put guarda comida, agua o antidoto."
+[
+	shared(choices) : "Compartido" : 1 =
+	[
+		0 : "Un alijo por jugador (4 huecos, atado al slot de la partida)"
+		1 : "Compartido (8 huecos)"
+	]
+]
+
+@PointClass base(Targetname) studio("models/props_c17/FurnitureMattress001a.mdl") = survival_cot : "Descanso corto. Stamina a 100 y un poco de vida. No salta la noche."
+[
+]
+
+@PointClass base(Targetname) studio("models/props_c17/FurnitureMattress001a.mdl") = survival_bed : "Cama de la fase 12. De noche salta el reloj a las 07:00. Tambien cura sv_survival_bed_heal."
+[
+]
+
+@PointClass base(Targetname) studio("models/items/battery.mdl") = item_survival_antidote : "Antidoto de la mochila. +use lo guarda. survival_antidote lo usa y baja la infeccion a 0."
+[
+]
+
+@PointClass base(Targetname) studio("models/healthvial.mdl") = item_antidote : "Antidoto (fase 20). Igual que item_survival_antidote, con el modelo del vial. +use lo guarda; se usa desde la mochila (I), survival_antidote o survival_use_antidote."
+[
+]
+
+@PointClass base(Targetname) studio("models/props_junk/garbage_metalcan001a.mdl") = item_junk_can : "Chatarra: lata vacia. +use la guarda en la mochila. No sirve para nada."
+[
+]
+
+@PointClass base(Targetname) studio("models/props_junk/garbage_newspaper001a.mdl") = item_junk_paper : "Chatarra: papel roto."
+[
+]
+
+@PointClass base(Targetname) studio("models/props_lab/citizenradio.mdl") = item_junk_radio : "Chatarra: radio rota."
+[
+]
+
+@PointClass base(Targetname) studio("models/props_junk/garbage_takeoutcarton001a.mdl") = item_junk_rag : "Chatarra: trapo sucio."
+[
+]
+
+@PointClass base(Targetname) studio("models/props_junk/garbage_plasticbottle001a.mdl") = item_junk_bottle : "Chatarra: botella vacia."
+[
+]

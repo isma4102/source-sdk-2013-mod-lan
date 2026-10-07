@@ -662,6 +662,15 @@ void CPropVehicleDriveable::DriveVehicle( CBasePlayer *pPlayer, CUserCmd *ucmd )
 		return;
 
 	DriveVehicle( TICK_INTERVAL, ucmd, pPlayer->m_afButtonPressed, pPlayer->m_afButtonReleased );
+
+#ifdef HL2_DLL
+	// m_nSpeed is miles per hour. A parented driver often has no velocity of their own.
+	extern void Survival_OnVehicleNoise( const Vector &vecOrigin, CBasePlayer *pDriver, float flSpeedMph, int nButtons, int nButtonsDown );
+	float flMph = fabs( (float)m_nSpeed );
+	if ( flMph < 1.0f )
+		flMph = GetAbsVelocity().Length2D() * ( 3600.0f / 63360.0f );
+	Survival_OnVehicleNoise( GetAbsOrigin(), pPlayer, flMph, ucmd->buttons, pPlayer->m_afButtonPressed );
+#endif
 }
 
 //-----------------------------------------------------------------------------
