@@ -166,6 +166,7 @@ public:
 	int SurvivalInventory_CountType( int nType );
 	bool SurvivalInventory_Add( int nType, int nAmount );
 	bool SurvivalInventory_ConsumeType( int nType );
+	bool SurvivalInventory_ConsumeSlot( int nSlot );
 	void SurvivalInventory_Dump( CBasePlayer *pNotify );
 	bool SuitPower_IsDeviceActive( const CSuitPowerDevice &device );
 	bool SuitPower_AddDevice( const CSuitPowerDevice &device );

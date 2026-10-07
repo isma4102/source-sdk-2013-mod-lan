@@ -1,10 +1,12 @@
 //========= Copyright Valve Corporation, All rights reserved. ============//
 //
 // Purpose: Hunger, thirst and stamina bars for the survival mod.
+//          Also hosts the backpack inventory panel (key: I / survival_inv).
 //
 //=============================================================================//
 
 #include "cbase.h"
+#include "hud.h"
 #include "hud_survival.h"
 #include "hud_macros.h"
 #include "c_basehlplayer.h"
@@ -16,6 +18,10 @@
 #include <vgui/ISurface.h>
 #include <vgui/IScheme.h>
 #include <vgui/ILocalize.h>
+#include <vgui/IInput.h>
+#include <vgui/KeyCode.h>
+#include "ienginevgui.h"
+#include "inputsystem/iinputsystem.h"
 
 using namespace vgui;
 
@@ -65,6 +71,22 @@ static const wchar_t *Survival_Loc( const char *pszToken, const wchar_t *pszFall
 			return pText;
 	}
 	return pszFallback;
+}
+
+static const wchar_t *Survival_ItemName( int nType )
+{
+	switch ( nType )
+	{
+	case SURVIVAL_ITEM_FOOD:		return Survival_Loc( "#Survival_ItemFood", L"Comida" );
+	case SURVIVAL_ITEM_WATER:		return Survival_Loc( "#Survival_ItemWater", L"Agua" );
+	case SURVIVAL_ITEM_ANTIDOTE:	return Survival_Loc( "#Survival_ItemAntidote", L"Antidoto" );
+	case SURVIVAL_ITEM_CAN:			return Survival_Loc( "#Survival_ItemCan", L"Lata vacia" );
+	case SURVIVAL_ITEM_PAPER:		return Survival_Loc( "#Survival_ItemPaper", L"Papel roto" );
+	case SURVIVAL_ITEM_RADIO:		return Survival_Loc( "#Survival_ItemRadio", L"Radio rota" );
+	case SURVIVAL_ITEM_RAG:			return Survival_Loc( "#Survival_ItemRag", L"Trapo sucio" );
+	case SURVIVAL_ITEM_BOTTLE:		return Survival_Loc( "#Survival_ItemBottle", L"Botella vacia" );
+	default:						return Survival_Loc( "#Survival_ItemEmpty", L"Vacio" );
+	}
 }
 
 void CHudSurvival::DrawNeed( int y, const wchar_t *wszLabel, float flValue, Color col, bool bLowIsDanger )
@@ -127,6 +149,7 @@ void CHudSurvival::Paint()
 
 	int nFood = 0;
 	int nWater = 0;
+	int nAntidote = 0;
 	for ( int i = 0; i < SURVIVAL_INVENTORY_SLOTS; i++ )
 	{
 		int nType = Survival_SlotType( pPlayer->m_HL2Local.m_nInventorySlot[i] );
@@ -134,18 +157,22 @@ void CHudSurvival::Paint()
 			nFood++;
 		else if ( nType == SURVIVAL_ITEM_WATER )
 			nWater++;
+		else if ( nType == SURVIVAL_ITEM_ANTIDOTE )
+			nAntidote++;
 	}
 
 	wchar_t wszFood[8];
 	wchar_t wszWater[8];
-	wchar_t wszInv[96];
+	wchar_t wszAnti[8];
+	wchar_t wszInv[128];
 	V_snwprintf( wszFood, ARRAYSIZE( wszFood ), L"%d", nFood );
 	V_snwprintf( wszWater, ARRAYSIZE( wszWater ), L"%d", nWater );
-	const wchar_t *pInvFmt = g_pVGuiLocalize ? g_pVGuiLocalize->Find( "#Survival_FoodWater" ) : NULL;
+	V_snwprintf( wszAnti, ARRAYSIZE( wszAnti ), L"%d", nAntidote );
+	const wchar_t *pInvFmt = g_pVGuiLocalize ? g_pVGuiLocalize->Find( "#Survival_FoodWaterAnti" ) : NULL;
 	if ( pInvFmt )
-		g_pVGuiLocalize->ConstructString( wszInv, sizeof( wszInv ), pInvFmt, 2, wszFood, wszWater );
+		g_pVGuiLocalize->ConstructString( wszInv, sizeof( wszInv ), pInvFmt, 3, wszFood, wszWater, wszAnti );
 	else
-		V_snwprintf( wszInv, ARRAYSIZE( wszInv ), L"Comida %d   Agua %d", nFood, nWater );
+		V_snwprintf( wszInv, ARRAYSIZE( wszInv ), L"Comida %d  Agua %d  Antidoto %d", nFood, nWater, nAntidote );
 	surface()->DrawSetTextFont( m_hFont );
 	surface()->DrawSetTextColor( Color( 230, 230, 230, 255 ) );
 	surface()->DrawSetTextPos( 0, nRowH * 4 );
@@ -177,6 +204,324 @@ void CHudSurvival::Paint()
 	}
 #endif
 }
+
+//-----------------------------------------------------------------------------
+// Backpack inventory panel. Toggle with "survival_inv" (default bind: I).
+//-----------------------------------------------------------------------------
+class CHudSurvivalInventory : public CHudElement, public vgui::Panel
+{
+	DECLARE_CLASS_SIMPLE( CHudSurvivalInventory, vgui::Panel );
+
+public:
+	CHudSurvivalInventory( const char *pElementName );
+
+	void Toggle( void );
+	void SetOpen( bool bOpen );
+	bool IsOpen( void ) const { return m_bOpen; }
+
+	virtual void ApplySchemeSettings( vgui::IScheme *pScheme );
+	virtual bool ShouldDraw( void );
+	virtual void OnThink( void );
+	virtual void Paint();
+	virtual void OnMousePressed( vgui::MouseCode code );
+	virtual void OnKeyCodeTyped( vgui::KeyCode code );
+	virtual void OnKeyCodePressed( vgui::KeyCode code );
+
+private:
+	int SlotAtCursor( int nCursorX, int nCursorY );
+	void UseSlot( int nSlot );
+	void LayoutSlots( int &nOriginX, int &nOriginY, int &nSlotW, int &nSlotH, int &nGap );
+
+	bool m_bOpen;
+	vgui::HFont m_hFont;
+	vgui::HFont m_hTitleFont;
+	int m_nCols;
+	int m_nRows;
+};
+
+DECLARE_HUDELEMENT( CHudSurvivalInventory );
+
+CHudSurvivalInventory::CHudSurvivalInventory( const char *pElementName )
+	: CHudElement( pElementName ), BaseClass( NULL, "HudSurvivalInventory" )
+{
+	vgui::Panel *pParent = g_pClientMode->GetViewport();
+	SetParent( pParent );
+	SetHiddenBits( HIDEHUD_PLAYERDEAD );
+	SetPaintBackgroundEnabled( false );
+	SetMouseInputEnabled( false );
+	SetKeyBoardInputEnabled( false );
+	SetVisible( false );
+	m_bOpen = false;
+	m_hFont = 0;
+	m_hTitleFont = 0;
+	m_nCols = 4;
+	m_nRows = 3;
+	SetZPos( 200 );
+}
+
+void CHudSurvivalInventory::ApplySchemeSettings( vgui::IScheme *pScheme )
+{
+	BaseClass::ApplySchemeSettings( pScheme );
+	SetPaintBackgroundEnabled( false );
+	m_hFont = pScheme->GetFont( "Default", true );
+	m_hTitleFont = pScheme->GetFont( "CloseCaption_Normal", true );
+	if ( !m_hTitleFont )
+		m_hTitleFont = pScheme->GetFont( "Default", true );
+	SetSize( ScreenWidth(), ScreenHeight() );
+}
+
+bool CHudSurvivalInventory::ShouldDraw( void )
+{
+	if ( !m_bOpen )
+		return false;
+	C_BasePlayer *pPlayer = C_BasePlayer::GetLocalPlayer();
+	if ( !pPlayer || !pPlayer->IsAlive() )
+		return false;
+	return CHudElement::ShouldDraw();
+}
+
+void CHudSurvivalInventory::Toggle( void )
+{
+	SetOpen( !m_bOpen );
+}
+
+void CHudSurvivalInventory::SetOpen( bool bOpen )
+{
+	C_BasePlayer *pPlayer = C_BasePlayer::GetLocalPlayer();
+	if ( bOpen && ( !pPlayer || !pPlayer->IsAlive() ) )
+		bOpen = false;
+
+	m_bOpen = bOpen;
+	SetVisible( bOpen );
+	SetMouseInputEnabled( bOpen );
+	SetKeyBoardInputEnabled( bOpen );
+	SetSize( ScreenWidth(), ScreenHeight() );
+
+	if ( bOpen )
+	{
+		MakePopup();
+		MoveToFront();
+		RequestFocus();
+		vgui::input()->SetAppModalSurface( GetVPanel() );
+	}
+	else
+	{
+		vgui::input()->SetAppModalSurface( NULL );
+	}
+}
+
+void CHudSurvivalInventory::OnThink( void )
+{
+	if ( !m_bOpen )
+		return;
+
+	C_BasePlayer *pPlayer = C_BasePlayer::GetLocalPlayer();
+	if ( !pPlayer || !pPlayer->IsAlive() )
+	{
+		SetOpen( false );
+		return;
+	}
+
+	SetSize( ScreenWidth(), ScreenHeight() );
+}
+
+void CHudSurvivalInventory::LayoutSlots( int &nOriginX, int &nOriginY, int &nSlotW, int &nSlotH, int &nGap )
+{
+	nGap = 10;
+	nSlotW = 140;
+	nSlotH = 72;
+	int nGridW = m_nCols * nSlotW + ( m_nCols - 1 ) * nGap;
+	int nGridH = m_nRows * nSlotH + ( m_nRows - 1 ) * nGap;
+	nOriginX = ( GetWide() - nGridW ) / 2;
+	nOriginY = ( GetTall() - nGridH ) / 2 + 10;
+}
+
+int CHudSurvivalInventory::SlotAtCursor( int nCursorX, int nCursorY )
+{
+	int nOriginX, nOriginY, nSlotW, nSlotH, nGap;
+	LayoutSlots( nOriginX, nOriginY, nSlotW, nSlotH, nGap );
+
+	for ( int i = 0; i < SURVIVAL_INVENTORY_SLOTS; i++ )
+	{
+		int col = i % m_nCols;
+		int row = i / m_nCols;
+		int x0 = nOriginX + col * ( nSlotW + nGap );
+		int y0 = nOriginY + row * ( nSlotH + nGap );
+		if ( nCursorX >= x0 && nCursorX < x0 + nSlotW && nCursorY >= y0 && nCursorY < y0 + nSlotH )
+			return i;
+	}
+	return -1;
+}
+
+void CHudSurvivalInventory::UseSlot( int nSlot )
+{
+	if ( nSlot < 0 || nSlot >= SURVIVAL_INVENTORY_SLOTS )
+		return;
+
+	char szCmd[64];
+	Q_snprintf( szCmd, sizeof( szCmd ), "survival_use_slot %d\n", nSlot );
+	engine->ClientCmd_Unrestricted( szCmd );
+}
+
+void CHudSurvivalInventory::OnMousePressed( vgui::MouseCode code )
+{
+	if ( !m_bOpen || code != MOUSE_LEFT )
+		return;
+
+	int x, y;
+	vgui::input()->GetCursorPos( x, y );
+	int lx = 0, ly = 0;
+	LocalToScreen( lx, ly );
+	UseSlot( SlotAtCursor( x - lx, y - ly ) );
+}
+
+void CHudSurvivalInventory::OnKeyCodePressed( vgui::KeyCode code )
+{
+	OnKeyCodeTyped( code );
+}
+
+void CHudSurvivalInventory::OnKeyCodeTyped( vgui::KeyCode code )
+{
+	if ( !m_bOpen )
+		return;
+
+	if ( code == KEY_ESCAPE || code == KEY_TAB || code == KEY_I )
+	{
+		SetOpen( false );
+		return;
+	}
+
+	int nSlot = -1;
+	if ( code >= KEY_1 && code <= KEY_9 )
+		nSlot = code - KEY_1;
+	else if ( code == KEY_0 )
+		nSlot = 9;
+	else if ( code == KEY_MINUS )
+		nSlot = 10;
+	else if ( code == KEY_EQUAL )
+		nSlot = 11;
+
+	if ( nSlot >= 0 )
+		UseSlot( nSlot );
+}
+
+void CHudSurvivalInventory::Paint()
+{
+	C_BaseHLPlayer *pPlayer = dynamic_cast<C_BaseHLPlayer *>( C_BasePlayer::GetLocalPlayer() );
+	if ( !pPlayer || !m_hFont )
+		return;
+
+	SetSize( ScreenWidth(), ScreenHeight() );
+
+	surface()->DrawSetColor( 0, 0, 0, 180 );
+	surface()->DrawFilledRect( 0, 0, GetWide(), GetTall() );
+
+	const wchar_t *pTitle = Survival_Loc( "#Survival_InventoryTitle", L"Mochila" );
+	const wchar_t *pHint = Survival_Loc( "#Survival_InventoryHint", L"Clic o 1-9 para usar. I / ESC cierra." );
+
+	surface()->DrawSetTextFont( m_hTitleFont ? m_hTitleFont : m_hFont );
+	surface()->DrawSetTextColor( Color( 230, 220, 160, 255 ) );
+	int nTW = 0, nTH = 0;
+	surface()->GetTextSize( m_hTitleFont ? m_hTitleFont : m_hFont, pTitle, nTW, nTH );
+	surface()->DrawSetTextPos( ( GetWide() - nTW ) / 2, GetTall() / 2 - 160 );
+	surface()->DrawPrintText( pTitle, wcslen( pTitle ) );
+
+	surface()->DrawSetTextFont( m_hFont );
+	surface()->DrawSetTextColor( Color( 200, 200, 200, 220 ) );
+	surface()->GetTextSize( m_hFont, pHint, nTW, nTH );
+	surface()->DrawSetTextPos( ( GetWide() - nTW ) / 2, GetTall() / 2 - 130 );
+	surface()->DrawPrintText( pHint, wcslen( pHint ) );
+
+	int nOriginX, nOriginY, nSlotW, nSlotH, nGap;
+	LayoutSlots( nOriginX, nOriginY, nSlotW, nSlotH, nGap );
+
+	int mx = 0, my = 0;
+	vgui::input()->GetCursorPos( mx, my );
+	int lx = 0, ly = 0;
+	LocalToScreen( lx, ly );
+	int nHover = SlotAtCursor( mx - lx, my - ly );
+
+	for ( int i = 0; i < SURVIVAL_INVENTORY_SLOTS; i++ )
+	{
+		int col = i % m_nCols;
+		int row = i / m_nCols;
+		int x0 = nOriginX + col * ( nSlotW + nGap );
+		int y0 = nOriginY + row * ( nSlotH + nGap );
+
+		int nPacked = pPlayer->m_HL2Local.m_nInventorySlot[i];
+		int nType = Survival_SlotType( nPacked );
+		int nAmount = Survival_SlotAmount( nPacked );
+
+		Color bg( 30, 30, 30, 220 );
+		Color border( 90, 90, 90, 255 );
+		if ( i == nHover )
+		{
+			bg = Color( 55, 55, 40, 230 );
+			border = Color( 220, 200, 100, 255 );
+		}
+		else if ( nType == SURVIVAL_ITEM_ANTIDOTE )
+		{
+			border = Color( 120, 200, 120, 255 );
+		}
+		else if ( Survival_IsJunkItem( nType ) )
+		{
+			border = Color( 120, 110, 90, 255 );
+		}
+		else if ( nType != SURVIVAL_ITEM_EMPTY )
+		{
+			border = Color( 100, 140, 180, 255 );
+		}
+
+		surface()->DrawSetColor( bg );
+		surface()->DrawFilledRect( x0, y0, x0 + nSlotW, y0 + nSlotH );
+		surface()->DrawSetColor( border );
+		surface()->DrawOutlinedRect( x0, y0, x0 + nSlotW, y0 + nSlotH );
+
+		wchar_t wszIdx[8];
+		V_snwprintf( wszIdx, ARRAYSIZE( wszIdx ), L"%d", i + 1 );
+		surface()->DrawSetTextFont( m_hFont );
+		surface()->DrawSetTextColor( Color( 160, 160, 160, 255 ) );
+		surface()->DrawSetTextPos( x0 + 6, y0 + 4 );
+		surface()->DrawPrintText( wszIdx, wcslen( wszIdx ) );
+
+		const wchar_t *pName = Survival_ItemName( nType );
+		surface()->DrawSetTextColor( nType == SURVIVAL_ITEM_EMPTY ? Color( 100, 100, 100, 255 ) : Color( 235, 235, 235, 255 ) );
+		surface()->DrawSetTextPos( x0 + 8, y0 + 26 );
+		surface()->DrawPrintText( pName, wcslen( pName ) );
+
+		if ( nType == SURVIVAL_ITEM_FOOD || nType == SURVIVAL_ITEM_WATER )
+		{
+			wchar_t wszAmt[16];
+			V_snwprintf( wszAmt, ARRAYSIZE( wszAmt ), L"+%d", nAmount );
+			surface()->DrawSetTextColor( Color( 180, 220, 160, 255 ) );
+			surface()->DrawSetTextPos( x0 + 8, y0 + 48 );
+			surface()->DrawPrintText( wszAmt, wcslen( wszAmt ) );
+		}
+		else if ( Survival_IsJunkItem( nType ) )
+		{
+			const wchar_t *pJunk = Survival_Loc( "#Survival_JunkTag", L"Sin uso" );
+			surface()->DrawSetTextColor( Color( 160, 140, 110, 255 ) );
+			surface()->DrawSetTextPos( x0 + 8, y0 + 48 );
+			surface()->DrawPrintText( pJunk, wcslen( pJunk ) );
+		}
+		else if ( nType == SURVIVAL_ITEM_ANTIDOTE )
+		{
+			const wchar_t *pUse = Survival_Loc( "#Survival_AntidoteTag", L"Cura infeccion" );
+			surface()->DrawSetTextColor( Color( 140, 220, 140, 255 ) );
+			surface()->DrawSetTextPos( x0 + 8, y0 + 48 );
+			surface()->DrawPrintText( pUse, wcslen( pUse ) );
+		}
+	}
+}
+
+static void CC_SurvivalInvToggle( void )
+{
+	CHudSurvivalInventory *pInv = GET_HUDELEMENT( CHudSurvivalInventory );
+	if ( pInv )
+		pInv->Toggle();
+}
+
+static ConCommand survival_inv( "survival_inv", CC_SurvivalInvToggle, "Abre o cierra la mochila de supervivencia." );
 
 class CHudSurvivalStatus : public CHudElement, public vgui::Panel
 {

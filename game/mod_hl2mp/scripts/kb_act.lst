@@ -49,6 +49,7 @@
 "blank"			"=========================="
 "jpeg"					"#Valve_Take_Screen_Shot"
 "+showscores"			"#Valve_Display_Scores"
+"survival_inv"			"#Survival_OpenInventory"
 "impulse 201"			"#Valve_Spray_Logo"
 "pause"					"#Valve_Pause_Game"
 "quit"					"#Valve_Quit_Game"
