@@ -224,10 +224,10 @@
 		"fieldName" "HudSurvivalRadar"
 		"visible" "1"
 		"enabled" "1"
-		"xpos"	"r276"
-		"ypos"	"12"
-		"wide"	"120"
-		"tall"	"132"
+		"xpos"	"r340"
+		"ypos"	"8"
+		"wide"	"184"
+		"tall"	"196"
 	}
 
 	HudSurvivalStatus

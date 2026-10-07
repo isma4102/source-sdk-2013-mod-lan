@@ -21,6 +21,7 @@
 #include "info_camera_link.h"
 #include "point_camera.h"
 #include "engine/IEngineSound.h"
+#include "hl2/survival_ambient.h"
 #include "ndebugoverlay.h"
 #include "iservervehicle.h"
 #include "IVehicle.h"
@@ -701,6 +702,27 @@ END_SEND_TABLE()
 BEGIN_ENT_SCRIPTDESC( CHL2_Player, CBasePlayer, "Half-Life 2 Player" )
 END_SCRIPTDESC();
 
+static void Survival_PrecacheAmbient( CBaseEntity *pEnt )
+{
+	if ( !pEnt )
+		return;
+
+	if ( Survival_AmbientFileExists( SURVIVAL_AMBIENT_BED ) )
+		pEnt->PrecacheSound( SURVIVAL_AMBIENT_BED );
+
+	for ( int i = 0; i < ARRAYSIZE( g_pszSurvivalAmbientGusts ); i++ )
+	{
+		if ( Survival_AmbientFileExists( g_pszSurvivalAmbientGusts[i] ) )
+			pEnt->PrecacheSound( g_pszSurvivalAmbientGusts[i] );
+	}
+
+	for ( int i = 0; i < ARRAYSIZE( g_pszSurvivalAmbientEvents ); i++ )
+	{
+		if ( Survival_AmbientFileExists( g_pszSurvivalAmbientEvents[i] ) )
+			pEnt->PrecacheSound( g_pszSurvivalAmbientEvents[i] );
+	}
+}
+
 void CHL2_Player::Precache( void )
 {
 	BaseClass::Precache();
@@ -715,7 +737,10 @@ void CHL2_Player::Precache( void )
 	PrecacheScriptSound( "HL2Player.Use" );
 	PrecacheScriptSound( "HL2Player.BurnPain" );
 	// Horn and the client ambient manager use stock HL2 waves. No custom WAV in the mod.
+	// Precache puts them in the signon table so a custom map (rp_c17_031) that
+	// never references the waves can still play them on the client.
 	PrecacheSound( "ambient/alarms/manhack_alert_pass1.wav" );
+	Survival_PrecacheAmbient( this );
 }
 
 //-----------------------------------------------------------------------------
@@ -2265,7 +2290,7 @@ ConVar sv_survival_noise_intensity_vehicle( "sv_survival_noise_intensity_vehicle
 ConVar sv_survival_noise_vehicle_speed( "sv_survival_noise_vehicle_speed", "10", FCVAR_NOTIFY, "Miles per hour before a throttled vehicle counts as loud." );
 ConVar sv_survival_noise_radius_horn( "sv_survival_noise_radius_horn", "1400", FCVAR_NOTIFY, "Vehicle horn radius, in units. Also used by survival_horn and attack2 in a vehicle." );
 ConVar sv_survival_noise_intensity_horn( "sv_survival_noise_intensity_horn", "1", FCVAR_NOTIFY, "Aggro strength of the horn." );
-ConVar sv_survival_give_range( "sv_survival_give_range", "128", FCVAR_NOTIFY, "Distance at which survival_give can hand food, water or antidote to a teammate." );
+ConVar sv_survival_give_range( "sv_survival_give_range", "192", FCVAR_NOTIFY, "Distance at which survival_give can hand food, water or antidote to a teammate." );
 
 ConVar sv_survival_downed_enabled( "sv_survival_downed_enabled", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "The first lethal hit downs the player instead of killing them." );
 ConVar sv_survival_downed_time( "sv_survival_downed_time", "25", FCVAR_NOTIFY, "Seconds a downed player can be revived before they die." );
@@ -3144,8 +3169,67 @@ bool CHL2_Player::SurvivalInventory_RemoveFirst( int nPreferredType, int &nOutTy
 	return false;
 }
 
-static CHL2_Player *Survival_FindGiveTarget( CHL2_Player *pPlayer )
+enum
 {
+	SURVIVAL_GIVE_OK = 0,
+	SURVIVAL_GIVE_NO_TARGET,
+	SURVIVAL_GIVE_TOO_FAR,
+	SURVIVAL_GIVE_BLOCKED,
+};
+
+static void Survival_Tell( CHL2_Player *pPlayer, const char *pszToken, const char *pszParam1 = NULL, const char *pszParam2 = NULL )
+{
+	if ( !pPlayer || !pszToken )
+		return;
+	ClientPrint( pPlayer, HUD_PRINTCENTER, pszToken, pszParam1, pszParam2 );
+	ClientPrint( pPlayer, HUD_PRINTTALK, pszToken, pszParam1, pszParam2 );
+}
+
+static void Survival_CopyName( CHL2_Player *pPlayer, char *pszBuf, int nBuf )
+{
+	const char *psz = ( pPlayer && pPlayer->GetPlayerName() && pPlayer->GetPlayerName()[0] ) ? pPlayer->GetPlayerName() : "jugador";
+	Q_strncpy( pszBuf, psz, nBuf );
+	if ( pszBuf[0] == '#' )
+		pszBuf[0] = ' ';
+	for ( char *p = pszBuf; *p; p++ )
+	{
+		if ( *p == '%' )
+			*p = ' ';
+	}
+}
+
+// MASK_SHOT hits the player hull. The old MASK_BLOCKLOS trace ignored players
+// and the held weapon, so a crowbar in front of the eyes rejected every target.
+static bool Survival_GiveSees( CHL2_Player *pFrom, CHL2_Player *pTo )
+{
+	if ( !pFrom || !pTo )
+		return false;
+
+	CTraceFilterSkipTwoEntities filter( pFrom, pFrom->GetActiveWeapon(), COLLISION_GROUP_NONE );
+	Vector vecStart = pFrom->EyePosition();
+	Vector vecAims[3];
+	vecAims[0] = pTo->EyePosition();
+	vecAims[1] = pTo->WorldSpaceCenter();
+	vecAims[2] = pTo->GetAbsOrigin() + Vector( 0, 0, 8 );
+	CBaseEntity *pVehicle = pTo->IsInAVehicle() ? pTo->GetVehicleEntity() : NULL;
+
+	for ( int i = 0; i < 3; i++ )
+	{
+		trace_t tr;
+		UTIL_TraceLine( vecStart, vecAims[i], MASK_SHOT, &filter, &tr );
+		if ( tr.m_pEnt == pTo )
+			return true;
+		if ( tr.m_pEnt && ( tr.m_pEnt->GetOwnerEntity() == pTo || tr.m_pEnt == pVehicle ) )
+			return true;
+		if ( tr.fraction > 0.95f )
+			return true;
+	}
+	return false;
+}
+
+static CHL2_Player *Survival_FindGiveTarget( CHL2_Player *pPlayer, int &nReason )
+{
+	nReason = SURVIVAL_GIVE_NO_TARGET;
 	if ( !pPlayer )
 		return NULL;
 
@@ -3156,9 +3240,42 @@ static CHL2_Player *Survival_FindGiveTarget( CHL2_Player *pPlayer )
 	float flRange = sv_survival_give_range.GetFloat();
 	if ( flRange < 16.0f )
 		flRange = 16.0f;
+	float flNotice = flRange * 2.5f;
+	if ( flNotice < 320.0f )
+		flNotice = 320.0f;
+	if ( flNotice > 512.0f )
+		flNotice = 512.0f;
 
 	CHL2_Player *pBest = NULL;
 	float flBest = flRange;
+	CHL2_Player *pBlocked = NULL;
+	float flBlocked = flRange;
+	CHL2_Player *pTooFar = NULL;
+	float flTooFar = flNotice;
+
+	CTraceFilterSkipTwoEntities aimFilter( pPlayer, pPlayer->GetActiveWeapon(), COLLISION_GROUP_NONE );
+	trace_t trAim;
+	UTIL_TraceLine( vecStart, vecStart + vecForward * flNotice, MASK_SHOT, &aimFilter, &trAim );
+	CHL2_Player *pLook = dynamic_cast<CHL2_Player *>( trAim.m_pEnt );
+	if ( !pLook && trAim.m_pEnt && trAim.m_pEnt->GetOwnerEntity() )
+		pLook = dynamic_cast<CHL2_Player *>( trAim.m_pEnt->GetOwnerEntity() );
+	// The player under the crosshair wins. A wide cone must not hand the
+	// item to someone standing beside the person you are looking at.
+	if ( pLook && pLook != pPlayer && pLook->IsAlive() )
+	{
+		float flDist = ( pLook->WorldSpaceCenter() - vecStart ).Length();
+		if ( flDist <= flRange && Survival_GiveSees( pPlayer, pLook ) )
+		{
+			nReason = SURVIVAL_GIVE_OK;
+			return pLook;
+		}
+		if ( flDist > flRange )
+			nReason = SURVIVAL_GIVE_TOO_FAR;
+		else
+			nReason = SURVIVAL_GIVE_BLOCKED;
+		return NULL;
+	}
+
 	for ( int i = 1; i <= gpGlobals->maxClients; i++ )
 	{
 		CHL2_Player *pOther = dynamic_cast<CHL2_Player *>( UTIL_PlayerByIndex( i ) );
@@ -3167,41 +3284,80 @@ static CHL2_Player *Survival_FindGiveTarget( CHL2_Player *pPlayer )
 
 		Vector vecTo = pOther->WorldSpaceCenter() - vecStart;
 		float flDist = vecTo.Length();
-		if ( flDist > flRange || flDist < 1.0f )
+		if ( flDist > flNotice || flDist < 1.0f )
 			continue;
 
 		Vector vecDir = vecTo / flDist;
-		if ( DotProduct( vecDir, vecForward ) < 0.4f )
-			continue;
-
-		trace_t tr;
-		CTraceFilterSimple filter( pPlayer, COLLISION_GROUP_NONE );
-		UTIL_TraceLine( vecStart, pOther->WorldSpaceCenter(), MASK_BLOCKLOS, &filter, &tr );
-		if ( tr.fraction < 1.0f && tr.m_pEnt != pOther )
-			continue;
-
-		if ( flDist < flBest )
+		float flDot = DotProduct( vecDir, vecForward );
+		if ( flDist <= flRange )
 		{
-			flBest = flDist;
-			pBest = pOther;
+			if ( flDot < 0.45f )
+				continue;
+			if ( Survival_GiveSees( pPlayer, pOther ) )
+			{
+				if ( flDist < flBest )
+				{
+					flBest = flDist;
+					pBest = pOther;
+				}
+			}
+			else if ( flDist < flBlocked )
+			{
+				flBlocked = flDist;
+				pBlocked = pOther;
+			}
+		}
+		else if ( flDot >= 0.65f && flDist < flTooFar )
+		{
+			flTooFar = flDist;
+			pTooFar = pOther;
 		}
 	}
 
-	return pBest;
+	if ( pBest )
+	{
+		nReason = SURVIVAL_GIVE_OK;
+		return pBest;
+	}
+	if ( pBlocked )
+		nReason = SURVIVAL_GIVE_BLOCKED;
+	else if ( pTooFar )
+		nReason = SURVIVAL_GIVE_TOO_FAR;
+	return NULL;
 }
 
 void CHL2_Player::Survival_GiveItem( const char *pszWhich )
 {
 	if ( !IsAlive() || Survival_IsDowned() )
 	{
-		ClientPrint( this, HUD_PRINTCENTER, "#Survival_GiveDowned" );
+		Survival_Tell( this, "#Survival_GiveDowned" );
+		return;
+	}
+
+	int nReason = SURVIVAL_GIVE_NO_TARGET;
+	CHL2_Player *pTarget = Survival_FindGiveTarget( this, nReason );
+	if ( !pTarget )
+	{
+		if ( nReason == SURVIVAL_GIVE_TOO_FAR )
+			Survival_Tell( this, "#Survival_GiveTooFar" );
+		else if ( nReason == SURVIVAL_GIVE_BLOCKED )
+			Survival_Tell( this, "#Survival_GiveBlocked" );
+		else
+			Survival_Tell( this, "#Survival_GiveNoOne" );
 		return;
 	}
 
 	int nPreferred = 0;
+	int nSlot = -1;
+	bool bSlot = false;
 	if ( pszWhich && pszWhich[0] )
 	{
-		if ( !Q_stricmp( pszWhich, "food" ) || !Q_stricmp( pszWhich, "comida" ) )
+		if ( pszWhich[0] >= '0' && pszWhich[0] <= '9' )
+		{
+			bSlot = true;
+			nSlot = atoi( pszWhich ) - 1;
+		}
+		else if ( !Q_stricmp( pszWhich, "food" ) || !Q_stricmp( pszWhich, "comida" ) )
 			nPreferred = SURVIVAL_ITEM_FOOD;
 		else if ( !Q_stricmp( pszWhich, "water" ) || !Q_stricmp( pszWhich, "agua" ) )
 			nPreferred = SURVIVAL_ITEM_WATER;
@@ -3209,31 +3365,59 @@ void CHL2_Player::Survival_GiveItem( const char *pszWhich )
 			nPreferred = SURVIVAL_ITEM_ANTIDOTE;
 	}
 
-	CHL2_Player *pTarget = Survival_FindGiveTarget( this );
-	if ( !pTarget )
+	int nType = 0;
+	int nAmount = 0;
+	int nSlots = clamp( sv_survival_inventory_slots.GetInt(), 1, SURVIVAL_INVENTORY_SLOTS );
+	if ( bSlot )
 	{
-		ClientPrint( this, HUD_PRINTCENTER, "#Survival_GiveNoOne" );
+		if ( nSlot < 0 || nSlot >= nSlots )
+		{
+			Survival_Tell( this, "#Survival_GiveBadSlot" );
+			return;
+		}
+
+		int nPacked = m_HL2Local.m_nInventorySlot[nSlot];
+		nType = Survival_SlotType( nPacked );
+		nAmount = Survival_SlotAmount( nPacked );
+		if ( nType == SURVIVAL_ITEM_EMPTY )
+		{
+			Survival_Tell( this, "#Survival_GiveEmptySlot" );
+			return;
+		}
+		if ( nType != SURVIVAL_ITEM_FOOD && nType != SURVIVAL_ITEM_WATER && nType != SURVIVAL_ITEM_ANTIDOTE )
+		{
+			Survival_Tell( this, "#Survival_GiveJunk" );
+			return;
+		}
+		m_HL2Local.m_nInventorySlot.Set( nSlot, Survival_PackSlot( SURVIVAL_ITEM_EMPTY, 0 ) );
+	}
+	else if ( !SurvivalInventory_RemoveFirst( nPreferred, nType, nAmount ) )
+	{
+		if ( nPreferred )
+			Survival_Tell( this, "#Survival_GiveMissing", Survival_ItemToken( nPreferred ) );
+		else
+			Survival_Tell( this, "#Survival_GiveNone" );
 		return;
 	}
 
-	int nType = 0;
-	int nAmount = 0;
-	if ( !SurvivalInventory_RemoveFirst( nPreferred, nType, nAmount ) )
-	{
-		ClientPrint( this, HUD_PRINTCENTER, "#Survival_GiveNone" );
-		return;
-	}
+	char szThem[64];
+	char szMe[64];
+	Survival_CopyName( pTarget, szThem, sizeof( szThem ) );
+	Survival_CopyName( this, szMe, sizeof( szMe ) );
 
 	if ( !pTarget->SurvivalInventory_Add( nType, nAmount ) )
 	{
-		SurvivalInventory_Add( nType, nAmount );
-		ClientPrint( this, HUD_PRINTCENTER, "#Survival_GiveFull" );
+		if ( bSlot )
+			m_HL2Local.m_nInventorySlot.Set( nSlot, Survival_PackSlot( nType, nAmount ) );
+		else
+			SurvivalInventory_Add( nType, nAmount );
+		Survival_Tell( this, "#Survival_GiveFull", szThem );
 		return;
 	}
 
 	const char *pszToken = Survival_ItemToken( nType );
-	ClientPrint( this, HUD_PRINTCENTER, "#Survival_Gave", pszToken );
-	ClientPrint( pTarget, HUD_PRINTCENTER, "#Survival_Received", pszToken );
+	Survival_Tell( this, "#Survival_GaveTo", szThem, pszToken );
+	Survival_Tell( pTarget, "#Survival_ReceivedFrom", szMe, pszToken );
 }
 
 static int Survival_ParseItemType( const char *pszWhich )
@@ -3319,7 +3503,7 @@ static void CC_SurvivalSpawnSupply( const CCommand &args )
 	ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_Received", Survival_ItemToken( nType ) );
 }
 
-static ConCommand survival_give( "survival_give", CC_SurvivalGive, "Give food, water or an antidote to the teammate you are looking at. Optional: food, water, antidote." );
+static ConCommand survival_give( "survival_give", CC_SurvivalGive, "Give food, water or an antidote from the backpack to the teammate you are looking at. Optional: food, water, antidote, or a slot 1-12." );
 static ConCommand survival_antidote( "survival_antidote", CC_SurvivalAntidote, "Use an antidote from the backpack. Clears infection." );
 static ConCommand survival_horn( "survival_horn", CC_SurvivalHorn, "Honk if you are in a vehicle. Wakes zombies in sv_survival_noise_radius_horn." );
 static ConCommand survival_spawn_supply( "survival_spawn_supply", CC_SurvivalSpawnSupply, "Put food, water or an antidote in the backpack. Requires sv_cheats 1.", FCVAR_CHEAT );
