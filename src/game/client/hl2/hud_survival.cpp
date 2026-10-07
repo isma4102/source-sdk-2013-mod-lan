@@ -14,6 +14,9 @@
 #include "hl2/survival_inventory.h"
 #include "cliententitylist.h"
 #include "engine/IEngineSound.h"
+#include "igamesystem.h"
+#include "hl2/survival_ambient.h"
+#include "soundflags.h"
 #ifdef HL2MP
 #include "hl2mp_gamerules.h"
 #endif
@@ -438,7 +441,7 @@ void CHudSurvivalInventory::Paint()
 	surface()->DrawFilledRect( 0, 0, GetWide(), GetTall() );
 
 	const wchar_t *pTitle = Survival_Loc( "#Survival_InventoryTitle", L"Mochila" );
-	const wchar_t *pHint = Survival_Loc( "#Survival_InventoryHint", L"Clic o 1-9 para usar. I / ESC cierra." );
+	const wchar_t *pHint = Survival_Loc( "#Survival_InventoryHint", L"Clic o 1-9 para usar. J entrega al que miras. I / ESC cierra." );
 
 	surface()->DrawSetTextFont( m_hTitleFont ? m_hTitleFont : m_hFont );
 	surface()->DrawSetTextColor( Color( 230, 220, 160, 255 ) );
@@ -725,9 +728,10 @@ DECLARE_HUDELEMENT_DEPTH( CHudSurvivalNight, 5 );
 
 ConVar cl_survival_radar( "cl_survival_radar", "1", FCVAR_ARCHIVE, "Draw the survival radar." );
 ConVar cl_survival_radar_range( "cl_survival_radar_range", "1500", FCVAR_ARCHIVE, "Radar range, in units." );
-ConVar cl_survival_ambient( "cl_survival_ambient", "1", FCVAR_ARCHIVE, "Sparse wind, rumble and distant sirens. 0 silences the client ambient manager." );
-ConVar cl_survival_ambient_volume( "cl_survival_ambient_volume", "0.35", FCVAR_ARCHIVE, "Master volume for the ambient manager. Kept low on purpose." );
-ConVar cl_survival_ambient_gap( "cl_survival_ambient_gap", "18", FCVAR_ARCHIVE, "Seconds between ambient one-shots. A random extra gap of the same length is added." );
+ConVar cl_survival_radar_layout( "cl_survival_radar_layout", "1", FCVAR_ARCHIVE, "Draw nearby walls and floors on the radar. An overview image replaces this when resource/overviews/<map>.txt exists." );
+ConVar cl_survival_ambient( "cl_survival_ambient", "1", FCVAR_ARCHIVE, "Wind bed and occasional distant HL2 one-shots. 0 silences the client ambient manager." );
+ConVar cl_survival_ambient_volume( "cl_survival_ambient_volume", "0.7", FCVAR_ARCHIVE, "Master volume for the ambient bed and one-shots. 0.7 is audible and still quiet." );
+ConVar cl_survival_ambient_gap( "cl_survival_ambient_gap", "12", FCVAR_ARCHIVE, "Seconds between ambient one-shots. A little random slack is added." );
 
 static bool Survival_RadarHostile( const char *pszClass )
 {
@@ -746,6 +750,52 @@ static bool Survival_RadarHostile( const char *pszClass )
 	return false;
 }
 
+static int Survival_FloorToInt( float fl )
+{
+	int n = (int)fl;
+	if ( (float)n > fl )
+		n--;
+	return n;
+}
+
+// World brushes, static props, and func_brush / func_wall (SOLID_BSP).
+// Players and infected are SOLID_BBOX, so they are not painted as buildings.
+// TRACE_EVERYTHING_FILTER_PROPS hands static props to ShouldHitEntity. On the
+// client those handles are not C_BaseEntity, so they have to be accepted
+// before EntityFromEntityHandle.
+class CRadarWorldFilter : public CTraceFilter
+{
+public:
+	virtual bool ShouldHitEntity( IHandleEntity *pHandleEntity, int contentsMask )
+	{
+		(void)contentsMask;
+		if ( !pHandleEntity )
+			return false;
+		if ( staticpropmgr && staticpropmgr->IsStaticProp( pHandleEntity ) )
+			return true;
+
+		C_BaseEntity *pEnt = EntityFromEntityHandle( pHandleEntity );
+		if ( !pEnt )
+			return false;
+		return pEnt->GetSolid() == SOLID_BSP;
+	}
+
+	virtual TraceType_t GetTraceType() const
+	{
+		return TRACE_EVERYTHING_FILTER_PROPS;
+	}
+};
+
+// Chest-height world traces. 0 unknown, 1 open, 2 floor/street, 3 solid.
+enum
+{
+	SURVIVAL_RADAR_CELLS = 22,
+	SURVIVAL_RADAR_UNKNOWN = 0,
+	SURVIVAL_RADAR_OPEN = 1,
+	SURVIVAL_RADAR_FLOOR = 2,
+	SURVIVAL_RADAR_WALL = 3,
+};
+
 class CHudSurvivalRadar : public CHudElement, public vgui::Panel
 {
 	DECLARE_CLASS_SIMPLE( CHudSurvivalRadar, vgui::Panel );
@@ -761,6 +811,22 @@ public:
 		SetPaintBackgroundEnabled( false );
 		SetZPos( 50 );
 		m_hFont = 0;
+		m_bGrid = false;
+		m_nOrgX = 0;
+		m_nOrgY = 0;
+		m_flCell = 0.0f;
+		m_nSweep = 0;
+		m_nRay = 0;
+		memset( m_nCell, 0, sizeof( m_nCell ) );
+		m_szOverviewMap[0] = 0;
+		m_szOverviewAttempt[0] = 0;
+		m_nOverviewTries = 0;
+		m_bHasOverview = false;
+		m_nOverviewTex = -1;
+		m_nOverviewW = 0;
+		m_nOverviewH = 0;
+		m_flOverviewScale = 1.0f;
+		m_vecOverviewPos.Init();
 	}
 
 	virtual void ApplySchemeSettings( vgui::IScheme *pScheme )
@@ -791,7 +857,18 @@ protected:
 		surface()->DrawFilledRect( nX - nSize, nY - nSize, nX + nSize, nY + nSize );
 	}
 
-	bool WorldToRadar( const Vector &vecWorld, const Vector &vecOrigin, float flYaw, float flRange, float &x, float &y, bool &bClamped )
+	float RadarScale( float flRange ) const
+	{
+		float flHalf = (float)MIN( GetWide(), GetTall() ) * 0.5f - 8.0f;
+		if ( flHalf < 8.0f )
+			flHalf = 8.0f;
+		if ( flRange < 128.0f )
+			flRange = 128.0f;
+		return flHalf / flRange;
+	}
+
+	// Heading-up. Square clamp so a teammate past the edge stays on the rim.
+	bool WorldToRadar( const Vector &vecWorld, const Vector &vecOrigin, float flYaw, float flRange, float &x, float &y, bool &bClamped, bool bClampOut )
 	{
 		Vector delta = vecWorld - vecOrigin;
 		float flDist = delta.Length2D();
@@ -804,26 +881,325 @@ protected:
 		}
 
 		float flWorldYaw = RAD2DEG( atan2f( delta.y, delta.x ) );
-		float flRel = flWorldYaw - flYaw;
-		float flRad = DEG2RAD( flRel );
-		float flRadius = ( GetWide() * 0.5f ) - 8.0f;
-		if ( flRadius < 8.0f )
-			flRadius = 8.0f;
-		float flScale = flRadius / flRange;
-		float dx = sinf( flRad ) * flDist * flScale;
-		float dy = -cosf( flRad ) * flDist * flScale;
+		float flRel = DEG2RAD( flWorldYaw - flYaw );
+		float flScale = RadarScale( flRange );
+		float dx = sinf( flRel ) * flDist * flScale;
+		float dy = -cosf( flRel ) * flDist * flScale;
+		float flLimitX = GetWide() * 0.5f - 6.0f;
+		float flLimitY = GetTall() * 0.5f - 6.0f;
+		if ( flLimitX < 4.0f )
+			flLimitX = 4.0f;
+		if ( flLimitY < 4.0f )
+			flLimitY = 4.0f;
+
 		bClamped = false;
-		float flLen = sqrtf( dx * dx + dy * dy );
-		if ( flLen > flRadius && flLen > 0.0f )
+		if ( fabsf( dx ) > flLimitX || fabsf( dy ) > flLimitY )
 		{
-			dx *= flRadius / flLen;
-			dy *= flRadius / flLen;
+			if ( !bClampOut )
+				return false;
+			float flAx = flLimitX / MAX( fabsf( dx ), 0.001f );
+			float flAy = flLimitY / MAX( fabsf( dy ), 0.001f );
+			float flA = MIN( flAx, flAy );
+			dx *= flA;
+			dy *= flA;
 			bClamped = true;
 		}
 
 		x = GetWide() * 0.5f + dx;
 		y = GetTall() * 0.5f + dy;
 		return true;
+	}
+
+	void TraceCell( int x, int y, float flPlayerZ, ITraceFilter *pFilter, bool bForce )
+	{
+		float wx = ( m_nOrgX + x + 0.5f ) * m_flCell;
+		float wy = ( m_nOrgY + y + 0.5f ) * m_flCell;
+		Vector vecStart( wx, wy, flPlayerZ + 48.0f );
+		Vector vecEnd( wx, wy, flPlayerZ - 480.0f );
+		trace_t tr;
+		UTIL_TraceLine( vecStart, vecEnd, MASK_SOLID_BRUSHONLY, pFilter, &tr );
+
+		unsigned char nKind = SURVIVAL_RADAR_OPEN;
+		if ( tr.startsolid || tr.allsolid )
+		{
+			nKind = SURVIVAL_RADAR_WALL;
+		}
+		else if ( tr.fraction < 1.0f )
+		{
+			float dz = tr.endpos.z - flPlayerZ;
+			// A steep face at this floor is a wall. A flat hit is street or a room.
+			if ( tr.plane.normal.z < 0.5f && dz > -96.0f && dz < 80.0f )
+				nKind = SURVIVAL_RADAR_WALL;
+			else
+				nKind = SURVIVAL_RADAR_FLOOR;
+		}
+
+		// A floor sample must not erase a wall footprint. Thin walls never
+		// contain the cell center, so the horizontal stamp is the only mark.
+		// The cell under the player is forced, so the center does not stay tan.
+		if ( !bForce && m_nCell[y][x] == SURVIVAL_RADAR_WALL && nKind != SURVIVAL_RADAR_WALL )
+			return;
+
+		m_nCell[y][x] = nKind;
+	}
+
+	void StampWall( int x, int y )
+	{
+		if ( x < 0 || y < 0 || x >= SURVIVAL_RADAR_CELLS || y >= SURVIVAL_RADAR_CELLS )
+			return;
+		m_nCell[y][x] = SURVIVAL_RADAR_WALL;
+	}
+
+	// A chest-height ray hits the first solid face, then paints a short
+	// footprint behind it. Thin brush walls miss a vertical sample, so the
+	// stamp is what turns a house into a block instead of a speck.
+	void TraceWallRay( const Vector &vecOrigin, float flRange, ITraceFilter *pFilter )
+	{
+		float flYaw = ( m_nRay % 24 ) * ( 360.0f / 24.0f );
+		m_nRay++;
+
+		Vector vecForward;
+		AngleVectors( QAngle( 0, flYaw, 0 ), &vecForward );
+		Vector vecStart = vecOrigin + Vector( 0, 0, 40 );
+		Vector vecEnd = vecStart + vecForward * flRange;
+		trace_t tr;
+		UTIL_TraceLine( vecStart, vecEnd, MASK_SOLID_BRUSHONLY, pFilter, &tr );
+		if ( tr.startsolid || tr.fraction >= 1.0f )
+			return;
+		if ( tr.plane.normal.z > 0.65f )
+			return;
+		if ( m_flCell < 1.0f )
+			return;
+
+		Vector vecRight( -vecForward.y, vecForward.x, 0.0f );
+		float flStep = m_flCell * 0.5f;
+		if ( flStep < 16.0f )
+			flStep = 16.0f;
+		const float flDepth = 256.0f;
+		for ( float t = 0.0f; t <= flDepth; t += flStep )
+		{
+			Vector vecAt = tr.endpos + vecForward * t;
+			int x = Survival_FloorToInt( vecAt.x / m_flCell ) - m_nOrgX;
+			int y = Survival_FloorToInt( vecAt.y / m_flCell ) - m_nOrgY;
+			if ( x < 0 || y < 0 || x >= SURVIVAL_RADAR_CELLS || y >= SURVIVAL_RADAR_CELLS )
+				break;
+			StampWall( x, y );
+			Vector vecSide = vecAt + vecRight * m_flCell;
+			StampWall( Survival_FloorToInt( vecSide.x / m_flCell ) - m_nOrgX, Survival_FloorToInt( vecSide.y / m_flCell ) - m_nOrgY );
+			vecSide = vecAt - vecRight * m_flCell;
+			StampWall( Survival_FloorToInt( vecSide.x / m_flCell ) - m_nOrgX, Survival_FloorToInt( vecSide.y / m_flCell ) - m_nOrgY );
+		}
+	}
+
+	void UpdateLayout( const Vector &vecOrigin, float flRange )
+	{
+		const int N = SURVIVAL_RADAR_CELLS;
+		float flCell = ( flRange * 2.0f ) / (float)N;
+		if ( flCell < 16.0f )
+			flCell = 16.0f;
+
+		int nCx = Survival_FloorToInt( vecOrigin.x / flCell ) - N / 2;
+		int nCy = Survival_FloorToInt( vecOrigin.y / flCell ) - N / 2;
+
+		if ( !m_bGrid || fabsf( flCell - m_flCell ) > 0.5f )
+		{
+			memset( m_nCell, 0, sizeof( m_nCell ) );
+			m_nOrgX = nCx;
+			m_nOrgY = nCy;
+			m_flCell = flCell;
+			m_bGrid = true;
+		}
+		else if ( nCx != m_nOrgX || nCy != m_nOrgY )
+		{
+			int dx = nCx - m_nOrgX;
+			int dy = nCy - m_nOrgY;
+			unsigned char nNext[SURVIVAL_RADAR_CELLS][SURVIVAL_RADAR_CELLS];
+			memset( nNext, 0, sizeof( nNext ) );
+			if ( abs( dx ) < N && abs( dy ) < N )
+			{
+				for ( int y = 0; y < N; y++ )
+				{
+					for ( int x = 0; x < N; x++ )
+					{
+						int nx = x - dx;
+						int ny = y - dy;
+						if ( nx >= 0 && ny >= 0 && nx < N && ny < N )
+							nNext[ny][nx] = m_nCell[y][x];
+					}
+				}
+			}
+			memcpy( m_nCell, nNext, sizeof( m_nCell ) );
+			m_nOrgX = nCx;
+			m_nOrgY = nCy;
+			m_flCell = flCell;
+		}
+
+		CRadarWorldFilter filter;
+		int nTraced = 0;
+		int nLocalX = Survival_FloorToInt( vecOrigin.x / m_flCell ) - m_nOrgX;
+		int nLocalY = Survival_FloorToInt( vecOrigin.y / m_flCell ) - m_nOrgY;
+		if ( nLocalX >= 0 && nLocalY >= 0 && nLocalX < N && nLocalY < N )
+			TraceCell( nLocalX, nLocalY, vecOrigin.z, &filter, true );
+		const int nUnknownBudget = 8;
+		for ( int i = 0; i < N * N && nTraced < nUnknownBudget; i++ )
+		{
+			int idx = ( m_nSweep + i ) % ( N * N );
+			int x = idx % N;
+			int y = idx / N;
+			if ( m_nCell[y][x] != SURVIVAL_RADAR_UNKNOWN )
+				continue;
+			TraceCell( x, y, vecOrigin.z, &filter, false );
+			nTraced++;
+		}
+
+		// A few known cells every frame, so a floor change repaints within a couple of seconds.
+		for ( int i = 0; i < 4; i++ )
+		{
+			int idx = m_nSweep % ( N * N );
+			m_nSweep++;
+			int x = idx % N;
+			int y = idx / N;
+			TraceCell( x, y, vecOrigin.z, &filter, false );
+		}
+
+		for ( int i = 0; i < 3; i++ )
+			TraceWallRay( vecOrigin, flRange, &filter );
+	}
+
+	void DrawLayout( const Vector &vecOrigin, float flYaw, float flRange )
+	{
+		if ( !m_bGrid || m_flCell < 1.0f )
+			return;
+
+		float flScale = RadarScale( flRange );
+		float flPix = m_flCell * flScale;
+		int nHalf = (int)( flPix * 0.5f ) + 1;
+		if ( nHalf < 2 )
+			nHalf = 2;
+
+		for ( int y = 0; y < SURVIVAL_RADAR_CELLS; y++ )
+		{
+			for ( int x = 0; x < SURVIVAL_RADAR_CELLS; x++ )
+			{
+				unsigned char nKind = m_nCell[y][x];
+				if ( nKind != SURVIVAL_RADAR_FLOOR && nKind != SURVIVAL_RADAR_WALL )
+					continue;
+
+				Vector vecWorld( ( m_nOrgX + x + 0.5f ) * m_flCell, ( m_nOrgY + y + 0.5f ) * m_flCell, vecOrigin.z );
+				float px, py;
+				bool bClamped = false;
+				if ( !WorldToRadar( vecWorld, vecOrigin, flYaw, flRange, px, py, bClamped, false ) )
+					continue;
+
+				if ( nKind == SURVIVAL_RADAR_WALL )
+					surface()->DrawSetColor( 186, 176, 150, 235 );
+				else
+					surface()->DrawSetColor( 48, 62, 46, 210 );
+				surface()->DrawFilledRect( (int)px - nHalf, (int)py - nHalf, (int)px + nHalf, (int)py + nHalf );
+			}
+		}
+	}
+
+	void EnsureOverview( void )
+	{
+		const char *pszLevel = engine ? engine->GetLevelName() : "";
+		char szMap[64];
+		szMap[0] = 0;
+		if ( pszLevel && pszLevel[0] )
+			Q_FileBase( pszLevel, szMap, sizeof( szMap ) );
+
+		if ( !Q_stricmp( szMap, m_szOverviewMap ) )
+			return;
+
+		if ( Q_stricmp( szMap, m_szOverviewAttempt ) )
+		{
+			Q_strncpy( m_szOverviewAttempt, szMap, sizeof( m_szOverviewAttempt ) );
+			m_nOverviewTries = 0;
+		}
+
+		m_bHasOverview = false;
+		m_nOverviewW = 0;
+		m_nOverviewH = 0;
+		if ( !szMap[0] || !filesystem )
+			return;
+
+		char szFile[MAX_PATH];
+		Q_snprintf( szFile, sizeof( szFile ), "resource/overviews/%s.txt", szMap );
+		// Remember a missing file so we do not stat it every frame. A file that
+		// exists but whose material is not ready yet is retried next paint.
+		if ( !filesystem->FileExists( szFile, "GAME" ) )
+		{
+			Q_strncpy( m_szOverviewMap, szMap, sizeof( m_szOverviewMap ) );
+			return;
+		}
+
+		KeyValues *kv = new KeyValues( szMap );
+		if ( !kv->LoadFromFile( filesystem, szFile, "GAME" ) )
+		{
+			kv->deleteThis();
+			Q_strncpy( m_szOverviewMap, szMap, sizeof( m_szOverviewMap ) );
+			return;
+		}
+
+		const char *pszMat = kv->GetString( "material", "" );
+		float flScale = kv->GetFloat( "scale", 0.0f );
+		bool bReady = false;
+		if ( pszMat[0] && flScale > 0.01f )
+		{
+			if ( m_nOverviewTex < 0 )
+				m_nOverviewTex = surface()->CreateNewTextureID();
+			surface()->DrawSetTextureFile( m_nOverviewTex, pszMat, true, false );
+			int w = 0;
+			int h = 0;
+			surface()->DrawGetTextureSize( m_nOverviewTex, w, h );
+			if ( w > 8 && h > 8 )
+			{
+				m_bHasOverview = true;
+				m_vecOverviewPos.x = kv->GetFloat( "pos_x" );
+				m_vecOverviewPos.y = kv->GetFloat( "pos_y" );
+				m_flOverviewScale = flScale;
+				m_nOverviewW = w;
+				m_nOverviewH = h;
+				bReady = true;
+			}
+		}
+		kv->deleteThis();
+		if ( bReady || ++m_nOverviewTries >= 8 )
+			Q_strncpy( m_szOverviewMap, szMap, sizeof( m_szOverviewMap ) );
+	}
+
+	void DrawOverview( const Vector &vecOrigin, float flYaw, float flRange )
+	{
+		if ( !m_bHasOverview || m_nOverviewTex < 0 || m_flOverviewScale <= 0.01f || m_nOverviewW < 1 || m_nOverviewH < 1 )
+			return;
+
+		int nW = GetWide();
+		int nH = GetTall();
+		const int nInset = 3;
+		int xs[4] = { nInset, nW - nInset, nW - nInset, nInset };
+		int ys[4] = { nInset, nInset, nH - nInset, nH - nInset };
+		Vertex_t pts[4];
+		float flScale = RadarScale( flRange );
+
+		for ( int i = 0; i < 4; i++ )
+		{
+			float dx = (float)xs[i] - nW * 0.5f;
+			float dy = (float)ys[i] - nH * 0.5f;
+			float flDist = 0.0f;
+			if ( flScale > 0.0001f )
+				flDist = sqrtf( dx * dx + dy * dy ) / flScale;
+			float flRel = atan2f( dx, -dy );
+			float flWorld = flRel + DEG2RAD( flYaw );
+			float wx = vecOrigin.x + cosf( flWorld ) * flDist;
+			float wy = vecOrigin.y + sinf( flWorld ) * flDist;
+			float u = ( ( wx - m_vecOverviewPos.x ) / m_flOverviewScale ) / (float)m_nOverviewW;
+			float v = ( -( wy - m_vecOverviewPos.y ) / m_flOverviewScale ) / (float)m_nOverviewH;
+			pts[i].Init( Vector2D( (float)xs[i], (float)ys[i] ), Vector2D( u, v ) );
+		}
+
+		surface()->DrawSetColor( 255, 255, 255, 220 );
+		surface()->DrawSetTexture( m_nOverviewTex );
+		surface()->DrawTexturedPolygon( 4, pts );
 	}
 
 	virtual void Paint()
@@ -837,8 +1213,27 @@ protected:
 		if ( nW < 16 || nH < 16 )
 			return;
 
-		surface()->DrawSetColor( 0, 0, 0, 140 );
+		surface()->DrawSetColor( 12, 14, 12, 170 );
 		surface()->DrawFilledRect( 0, 0, nW, nH );
+
+		float flRange = cl_survival_radar_range.GetFloat();
+		if ( flRange < 128.0f )
+			flRange = 128.0f;
+
+		Vector vecOrigin = pLocal->GetAbsOrigin();
+		float flYaw = pLocal->EyeAngles().y;
+
+		EnsureOverview();
+		if ( m_bHasOverview )
+		{
+			DrawOverview( vecOrigin, flYaw, flRange );
+		}
+		else if ( cl_survival_radar_layout.GetBool() )
+		{
+			UpdateLayout( vecOrigin, flRange );
+			DrawLayout( vecOrigin, flYaw, flRange );
+		}
+
 		surface()->DrawSetColor( 180, 180, 160, 180 );
 		surface()->DrawOutlinedRect( 0, 0, nW, nH );
 		surface()->DrawOutlinedRect( 2, 2, nW - 2, nH - 2 );
@@ -852,12 +1247,6 @@ protected:
 			surface()->DrawPrintText( pLabel, wcslen( pLabel ) );
 		}
 
-		float flRange = cl_survival_radar_range.GetFloat();
-		if ( flRange < 128.0f )
-			flRange = 128.0f;
-
-		Vector vecOrigin = pLocal->GetAbsOrigin();
-		float flYaw = pLocal->EyeAngles().y;
 		float x, y;
 		bool bClamped = false;
 
@@ -869,7 +1258,7 @@ protected:
 				continue;
 			if ( pEnt->GetAbsOrigin().DistTo( vecOrigin ) > flRange )
 				continue;
-			WorldToRadar( pEnt->GetAbsOrigin(), vecOrigin, flYaw, flRange, x, y, bClamped );
+			WorldToRadar( pEnt->GetAbsOrigin(), vecOrigin, flYaw, flRange, x, y, bClamped, true );
 			DrawBlip( x, y, 2, Color( 210, 50, 50, 230 ) );
 		}
 
@@ -878,7 +1267,7 @@ protected:
 			C_BasePlayer *pOther = UTIL_PlayerByIndex( i );
 			if ( !pOther || pOther == pLocal || !pOther->IsAlive() || pOther->IsDormant() )
 				continue;
-			WorldToRadar( pOther->GetAbsOrigin(), vecOrigin, flYaw, flRange, x, y, bClamped );
+			WorldToRadar( pOther->GetAbsOrigin(), vecOrigin, flYaw, flRange, x, y, bClamped, true );
 			Color col = bClamped ? Color( 80, 140, 80, 180 ) : Color( 80, 220, 90, 230 );
 			DrawBlip( x, y, 3, col );
 		}
@@ -886,99 +1275,267 @@ protected:
 #ifdef HL2MP
 		if ( HL2MPRules() && HL2MPRules()->Survival_HasSafehouse() )
 		{
-			WorldToRadar( HL2MPRules()->Survival_GetSafehouseOrigin(), vecOrigin, flYaw, flRange, x, y, bClamped );
+			WorldToRadar( HL2MPRules()->Survival_GetSafehouseOrigin(), vecOrigin, flYaw, flRange, x, y, bClamped, true );
 			Color col = bClamped ? Color( 220, 180, 60, 160 ) : Color( 240, 210, 80, 240 );
 			DrawBlip( x, y, bClamped ? 3 : 4, col );
 		}
 #endif
 
 		DrawBlip( nW * 0.5f, nH * 0.5f, 2, Color( 240, 240, 240, 255 ) );
-		surface()->DrawSetColor( 240, 240, 240, 180 );
-		surface()->DrawFilledRect( (int)( nW * 0.5f ) - 1, (int)( nH * 0.5f ) - 10, (int)( nW * 0.5f ) + 1, (int)( nH * 0.5f ) - 4 );
+		surface()->DrawSetColor( 240, 240, 240, 200 );
+		surface()->DrawFilledRect( (int)( nW * 0.5f ) - 1, (int)( nH * 0.5f ) - 12, (int)( nW * 0.5f ) + 1, (int)( nH * 0.5f ) - 4 );
 	}
 
 private:
 	vgui::HFont m_hFont;
+	bool m_bGrid;
+	int m_nOrgX;
+	int m_nOrgY;
+	float m_flCell;
+	int m_nSweep;
+	int m_nRay;
+	unsigned char m_nCell[SURVIVAL_RADAR_CELLS][SURVIVAL_RADAR_CELLS];
+
+	char m_szOverviewMap[64];
+	char m_szOverviewAttempt[64];
+	int m_nOverviewTries;
+	bool m_bHasOverview;
+	int m_nOverviewTex;
+	int m_nOverviewW;
+	int m_nOverviewH;
+	float m_flOverviewScale;
+	Vector2D m_vecOverviewPos;
 };
 
 DECLARE_HUDELEMENT( CHudSurvivalRadar );
 
-class CHudSurvivalAmbient : public CHudElement, public vgui::Panel
+//-----------------------------------------------------------------------------
+// Client ambient bed. A HUD element that never draws does not get OnTick
+// on an invisible panel, and the old one-shots were quiet enough to vanish
+// under city DSP. This system runs every client frame, precaches the stock
+// waves, holds a dry 2D wind bed, and drops an occasional gust or siren.
+//-----------------------------------------------------------------------------
+class CSurvivalAmbient : public CAutoGameSystemPerFrame
 {
-	DECLARE_CLASS_SIMPLE( CHudSurvivalAmbient, vgui::Panel );
-
 public:
-	CHudSurvivalAmbient( const char *pElementName ) : CHudElement( pElementName ), BaseClass( NULL, "HudSurvivalAmbient" )
+	CSurvivalAmbient() : CAutoGameSystemPerFrame( "CSurvivalAmbient" )
 	{
-		vgui::Panel *pParent = g_pClientMode->GetViewport();
-		SetParent( pParent );
-		SetVisible( false );
-		SetMouseInputEnabled( false );
-		SetKeyBoardInputEnabled( false );
-		m_flNext = 0.0f;
-		m_nPick = 0;
-		vgui::ivgui()->AddTickSignal( GetVPanel(), 500 );
+		Reset();
 	}
 
-	virtual bool ShouldDraw( void )
+	virtual void LevelInitPostEntity()
 	{
-		return false;
+		Reset();
+		CacheExisting();
 	}
 
-	virtual void OnTick( void )
+	virtual void LevelShutdownPreEntity()
 	{
-		if ( !cl_survival_ambient.GetBool() || !enginesound )
+		StopBed();
+		Reset();
+	}
+
+	virtual void Update( float frametime )
+	{
+		(void)frametime;
+		if ( !enginesound || !cl_survival_ambient.GetBool() )
+		{
+			StopBed();
 			return;
+		}
+		if ( !engine || !engine->IsInGame() || engine->IsLevelMainMenuBackground() )
+		{
+			StopBed();
+			return;
+		}
 
 		C_BasePlayer *pPlayer = C_BasePlayer::GetLocalPlayer();
-		if ( !pPlayer || !pPlayer->IsAlive() )
+		if ( !pPlayer )
+		{
+			StopBed();
 			return;
-		if ( gpGlobals->curtime < m_flNext )
-			return;
-
-		// Stock HL2 waves. No Spanish VO ships with the SDK, so these stay wordless.
-		static const char *s_pszWind[] =
-		{
-			"ambient/wind/wind_snippet3.wav",
-			"ambient/wind/wind_snippet4.wav",
-			"ambient/wind/wind_snippet5.wav",
-			"ambient/wind/wind_med1.wav",
-			"ambient/wind/wind_hit1.wav",
-		};
-		static const char *s_pszFar[] =
-		{
-			"ambient/atmosphere/city_skybeam1.wav",
-			"ambient/atmosphere/city_skypass1.wav",
-			"ambient/levels/streetwar/building_rubble1.wav",
-			"ambient/alarms/apc_alarm_pass1.wav",
-		};
-
-		const char *psz = s_pszWind[m_nPick % ARRAYSIZE( s_pszWind )];
-		float flVol = 0.22f;
-		// About one event in five is a distant siren or a rumble, never a loop.
-		if ( ( m_nPick % 5 ) == 4 )
-		{
-			psz = s_pszFar[( m_nPick / 5 ) % ARRAYSIZE( s_pszFar )];
-			flVol = ( Q_stristr( psz, "alarm" ) != NULL ) ? 0.12f : 0.16f;
 		}
-		m_nPick++;
 
 		float flMaster = cl_survival_ambient_volume.GetFloat();
 		if ( flMaster < 0.0f )
 			flMaster = 0.0f;
 		if ( flMaster > 1.0f )
 			flMaster = 1.0f;
-		enginesound->EmitAmbientSound( psz, flVol * flMaster, 96 + ( m_nPick % 9 ) );
+
+		MaintainBed( flMaster * 0.40f );
+
+		if ( m_flNext <= 0.0f )
+			m_flNext = gpGlobals->curtime + ( m_bBedMissing ? 0.5f : 3.0f );
+		if ( gpGlobals->curtime < m_flNext )
+			return;
+
+		PlayOneShot( flMaster );
 
 		float flGap = cl_survival_ambient_gap.GetFloat();
 		if ( flGap < 6.0f )
 			flGap = 6.0f;
-		m_flNext = gpGlobals->curtime + flGap + random->RandomFloat( 0.0f, flGap );
+		m_flNext = gpGlobals->curtime + flGap * random->RandomFloat( 0.75f, 1.25f );
 	}
 
 private:
+	void Reset()
+	{
+		m_bBed = false;
+		m_bBedMissing = false;
+		m_flBedVol = -1.0f;
+		m_nBedGuid = 0;
+		m_flBedArm = 0.0f;
+		m_flNext = 0.0f;
+		m_nPick = 0;
+		m_nGusts = 0;
+		m_nEvents = 0;
+		m_bWarned = false;
+	}
+
+	void CacheExisting()
+	{
+		m_nGusts = 0;
+		m_nEvents = 0;
+		m_bBedMissing = !Survival_AmbientFileExists( SURVIVAL_AMBIENT_BED );
+
+		for ( int i = 0; i < ARRAYSIZE( g_pszSurvivalAmbientGusts ); i++ )
+		{
+			if ( !Survival_AmbientFileExists( g_pszSurvivalAmbientGusts[i] ) )
+				continue;
+			if ( m_nGusts < ARRAYSIZE( m_szGusts ) )
+			{
+				Q_strncpy( m_szGusts[m_nGusts], g_pszSurvivalAmbientGusts[i], sizeof( m_szGusts[0] ) );
+				m_nGusts++;
+			}
+		}
+
+		for ( int i = 0; i < ARRAYSIZE( g_pszSurvivalAmbientEvents ); i++ )
+		{
+			if ( !Survival_AmbientFileExists( g_pszSurvivalAmbientEvents[i] ) )
+				continue;
+			if ( m_nEvents < ARRAYSIZE( m_szEvents ) )
+			{
+				Q_strncpy( m_szEvents[m_nEvents], g_pszSurvivalAmbientEvents[i], sizeof( m_szEvents[0] ) );
+				m_nEvents++;
+			}
+		}
+
+		if ( !m_bWarned && m_bBedMissing && m_nGusts == 0 && m_nEvents == 0 )
+		{
+			m_bWarned = true;
+			Warning( "Sanducero: no se encontro ninguna ola de ambiente de HL2 en sound/. Revisa que gameinfo monte hl2_sound_misc.vpk.\n" );
+		}
+	}
+
+	void PlayWave( const char *pszWave, float flVol, int nPitch, int nFlags )
+	{
+		if ( !pszWave || !pszWave[0] || !enginesound )
+			return;
+
+		char szName[256];
+		// '#' skips the map DSP so a city soundscape does not bury the bed.
+		Q_snprintf( szName, sizeof( szName ), "#%s", pszWave );
+		if ( !( nFlags & ( SND_STOP | SND_CHANGE_VOL | SND_CHANGE_PITCH ) ) )
+			enginesound->PrecacheSound( pszWave, true );
+		enginesound->EmitAmbientSound( szName, flVol, nPitch, nFlags );
+	}
+
+	void NoteBedGuid()
+	{
+		m_nBedGuid = enginesound ? enginesound->GetGuidForLastSoundEmitted() : 0;
+	}
+
+	void StopBed()
+	{
+		if ( !m_bBed || m_bBedMissing )
+		{
+			m_bBed = false;
+			m_flBedVol = -1.0f;
+			return;
+		}
+		PlayWave( SURVIVAL_AMBIENT_BED, 0.0f, PITCH_NORM, SND_STOP );
+		m_bBed = false;
+		m_flBedVol = -1.0f;
+		m_nBedGuid = 0;
+		m_flBedArm = 0.0f;
+	}
+
+	void MaintainBed( float flVol )
+	{
+		if ( m_bBedMissing )
+			return;
+		if ( flVol < 0.02f )
+		{
+			StopBed();
+			return;
+		}
+
+		// Guid 0 just after the emit is normal, so the first check waits.
+		// A looping bed stays on that guid. If the wave ends, start it once.
+		if ( m_bBed && m_nBedGuid != 0 && gpGlobals->curtime >= m_flBedArm && enginesound && !enginesound->IsSoundStillPlaying( m_nBedGuid ) )
+		{
+			m_bBed = false;
+			m_nBedGuid = 0;
+		}
+
+		if ( !m_bBed )
+		{
+			PlayWave( SURVIVAL_AMBIENT_BED, flVol, PITCH_NORM, 0 );
+			NoteBedGuid();
+			m_bBed = true;
+			m_flBedVol = flVol;
+			m_flBedArm = gpGlobals->curtime + 0.75f;
+			return;
+		}
+
+		if ( fabsf( flVol - m_flBedVol ) > 0.03f )
+		{
+			PlayWave( SURVIVAL_AMBIENT_BED, flVol, PITCH_NORM, SND_CHANGE_VOL );
+			NoteBedGuid();
+			m_flBedVol = flVol;
+		}
+	}
+
+	void PlayOneShot( float flMaster )
+	{
+		const char *psz = NULL;
+		float flVol = 0.55f;
+		// About one event in five is a distant siren, a collapse or a flyby.
+		if ( m_nEvents > 0 && ( m_nPick % 5 ) == 4 )
+		{
+			psz = m_szEvents[( m_nPick / 5 ) % m_nEvents];
+			flVol = ( Q_stristr( psz, "alarm" ) != NULL || Q_stristr( psz, "heli" ) != NULL || Q_stristr( psz, "apc_distant" ) != NULL ) ? 0.38f : 0.48f;
+		}
+		else if ( m_nGusts > 0 )
+		{
+			psz = m_szGusts[m_nPick % m_nGusts];
+			flVol = 0.62f;
+		}
+		else if ( m_nEvents > 0 )
+		{
+			psz = m_szEvents[m_nPick % m_nEvents];
+			flVol = 0.48f;
+		}
+		m_nPick++;
+		if ( !psz )
+			return;
+
+		int nPitch = 96 + ( m_nPick % 9 );
+		PlayWave( psz, flVol * flMaster, nPitch, 0 );
+	}
+
+	bool m_bBed;
+	bool m_bBedMissing;
+	bool m_bWarned;
+	float m_flBedVol;
+	int m_nBedGuid;
+	float m_flBedArm;
 	float m_flNext;
 	int m_nPick;
+	int m_nGusts;
+	int m_nEvents;
+	char m_szGusts[8][128];
+	char m_szEvents[8][128];
 };
 
-DECLARE_HUDELEMENT( CHudSurvivalAmbient );
+static CSurvivalAmbient g_SurvivalAmbient;
