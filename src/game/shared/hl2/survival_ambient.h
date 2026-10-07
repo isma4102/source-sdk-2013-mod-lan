@@ -12,6 +12,9 @@
 #pragma once
 #endif
 
+// Full IFileSystem type for filesystem->FileExists below.
+#include "filesystem.h"
+
 // Looping outdoor wind. soundscapes_strike.txt "strike_outside".
 #define SURVIVAL_AMBIENT_BED "ambient/wind/wind1.wav"
 

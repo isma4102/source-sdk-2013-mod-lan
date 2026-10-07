@@ -857,7 +857,7 @@ protected:
 		surface()->DrawFilledRect( nX - nSize, nY - nSize, nX + nSize, nY + nSize );
 	}
 
-	float RadarScale( float flRange ) const
+	float RadarScale( float flRange )
 	{
 		float flHalf = (float)MIN( GetWide(), GetTall() ) * 0.5f - 8.0f;
 		if ( flHalf < 8.0f )
