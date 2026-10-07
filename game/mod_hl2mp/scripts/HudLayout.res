@@ -214,8 +214,19 @@
 		"visible" "1"
 		"enabled" "1"
 		"xpos"	"16"
-		"ypos"	"248"
-		"wide"	"260"
+		"ypos"	"232"
+		"wide"	"340"
+		"tall"	"148"
+	}
+
+	HudSurvivalRadar
+	{
+		"fieldName" "HudSurvivalRadar"
+		"visible" "1"
+		"enabled" "1"
+		"xpos"	"r276"
+		"ypos"	"12"
+		"wide"	"120"
 		"tall"	"132"
 	}
 

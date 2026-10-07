@@ -680,6 +680,8 @@ void CHL2_Player::Precache( void )
 	PrecacheScriptSound( "HL2Player.TrainUse" );
 	PrecacheScriptSound( "HL2Player.Use" );
 	PrecacheScriptSound( "HL2Player.BurnPain" );
+	// Horn and the client ambient manager use stock HL2 waves. No custom WAV in the mod.
+	PrecacheSound( "ambient/alarms/manhack_alert_pass1.wav" );
 }
 
 //-----------------------------------------------------------------------------
@@ -2208,13 +2210,28 @@ ConVar sv_survival_infect_damage( "sv_survival_infect_damage", "1", FCVAR_NOTIFY
 ConVar sv_survival_infect_damage_interval( "sv_survival_infect_damage_interval", "3", FCVAR_NOTIFY, "Seconds between infection health ticks." );
 ConVar sv_survival_infect_clear_on_respawn( "sv_survival_infect_clear_on_respawn", "1", FCVAR_NOTIFY, "Clear infection when the player spawns. The MVP does not keep it across lives." );
 
-ConVar sv_survival_noise_enabled( "sv_survival_noise_enabled", "1", FCVAR_NOTIFY, "Sprint, gunfire, crates and +use wake nearby zombies." );
-ConVar sv_survival_noise_cooldown( "sv_survival_noise_cooldown", "0.75", FCVAR_NOTIFY, "Seconds between noise pulses from the same player." );
+ConVar sv_survival_noise_enabled( "sv_survival_noise_enabled", "1", FCVAR_NOTIFY, "Sprint, gunfire, crates, vehicles, footsteps and +use wake nearby zombies." );
+ConVar sv_survival_noise_cooldown( "sv_survival_noise_cooldown", "0.75", FCVAR_NOTIFY, "Seconds between noise pulses from the same player. A louder pulse still goes through." );
+ConVar sv_survival_noise_intensity( "sv_survival_noise_intensity", "1", FCVAR_NOTIFY, "Master radius scale for every survival noise. 1 keeps the per-source radii. 0 silences them." );
+ConVar sv_survival_noise_aggro_intensity( "sv_survival_noise_aggro_intensity", "0.7", FCVAR_NOTIFY, "At or above this intensity, noise pulls an NPC off a target that is not already in melee." );
+ConVar sv_survival_noise_headcrabs( "sv_survival_noise_headcrabs", "1", FCVAR_NOTIFY, "Headcrabs also investigate survival noise. 0 leaves them out." );
 ConVar sv_survival_noise_radius_sprint( "sv_survival_noise_radius_sprint", "480", FCVAR_NOTIFY, "Sprint noise radius, in units." );
+ConVar sv_survival_noise_intensity_sprint( "sv_survival_noise_intensity_sprint", "0.8", FCVAR_NOTIFY, "Aggro strength of sprint noise. Does not change the radius." );
 ConVar sv_survival_noise_radius_gun( "sv_survival_noise_radius_gun", "900", FCVAR_NOTIFY, "Gunfire noise radius, in units." );
+ConVar sv_survival_noise_intensity_gun( "sv_survival_noise_intensity_gun", "1", FCVAR_NOTIFY, "Aggro strength of gunfire." );
 ConVar sv_survival_noise_radius_crate( "sv_survival_noise_radius_crate", "420", FCVAR_NOTIFY, "Loot container noise radius, in units." );
 ConVar sv_survival_noise_radius_use( "sv_survival_noise_radius_use", "280", FCVAR_NOTIFY, "Loud +use noise radius, in units." );
 ConVar sv_survival_noise_night_mul( "sv_survival_noise_night_mul", "1.5", FCVAR_NOTIFY, "Radius multiplier from 20:00 to 06:00. 1 leaves night the same as day." );
+ConVar sv_survival_noise_footsteps( "sv_survival_noise_footsteps", "1", FCVAR_NOTIFY, "Loud footsteps (not the quiet walk) attract zombies. 0 disables them. Sprint uses its own radius." );
+ConVar sv_survival_noise_radius_footstep( "sv_survival_noise_radius_footstep", "200", FCVAR_NOTIFY, "Loud footstep radius, in units. Smaller than sprint and gunfire." );
+ConVar sv_survival_noise_intensity_footstep( "sv_survival_noise_intensity_footstep", "0.35", FCVAR_NOTIFY, "Aggro strength of footsteps. Below sv_survival_noise_aggro_intensity they only wake an idle NPC." );
+ConVar sv_survival_noise_footstep_minvol( "sv_survival_noise_footstep_minvol", "0.45", FCVAR_NOTIFY, "Step volume required before a footstep counts as loud. Walking and crouching stay under this." );
+ConVar sv_survival_noise_radius_vehicle( "sv_survival_noise_radius_vehicle", "700", FCVAR_NOTIFY, "Vehicle acceleration noise radius, in units." );
+ConVar sv_survival_noise_intensity_vehicle( "sv_survival_noise_intensity_vehicle", "0.85", FCVAR_NOTIFY, "Aggro strength of a driven vehicle." );
+ConVar sv_survival_noise_vehicle_speed( "sv_survival_noise_vehicle_speed", "10", FCVAR_NOTIFY, "Miles per hour before a throttled vehicle counts as loud." );
+ConVar sv_survival_noise_radius_horn( "sv_survival_noise_radius_horn", "1400", FCVAR_NOTIFY, "Vehicle horn radius, in units. Also used by survival_horn and attack2 in a vehicle." );
+ConVar sv_survival_noise_intensity_horn( "sv_survival_noise_intensity_horn", "1", FCVAR_NOTIFY, "Aggro strength of the horn." );
+ConVar sv_survival_give_range( "sv_survival_give_range", "128", FCVAR_NOTIFY, "Distance at which survival_give can hand food, water or antidote to a teammate." );
 
 ConVar sv_survival_downed_enabled( "sv_survival_downed_enabled", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "The first lethal hit downs the player instead of killing them." );
 ConVar sv_survival_downed_time( "sv_survival_downed_time", "25", FCVAR_NOTIFY, "Seconds a downed player can be revived before they die." );
@@ -2223,7 +2240,7 @@ ConVar sv_survival_revive_time( "sv_survival_revive_time", "3", FCVAR_NOTIFY, "S
 ConVar sv_survival_revive_range( "sv_survival_revive_range", "96", FCVAR_NOTIFY, "Distance at which +use can revive a downed teammate." );
 ConVar sv_survival_revive_health( "sv_survival_revive_health", "30", FCVAR_NOTIFY, "Health restored by a revive. Infection is not cleared." );
 
-static bool Survival_IsZombieEntity( CBaseEntity *pEnt )
+bool Survival_IsZombieEntity( CBaseEntity *pEnt )
 {
 	if ( !pEnt )
 		return false;
@@ -2248,10 +2265,44 @@ static bool Survival_IsZombieEntity( CBaseEntity *pEnt )
 	return false;
 }
 
-void Survival_EmitNoise( const Vector &vecOrigin, float flRadius, CBaseEntity *pOwner )
+bool Survival_IsHeadcrabEntity( CBaseEntity *pEnt )
+{
+	if ( !pEnt )
+		return false;
+
+	if ( pEnt->Classify() == CLASS_HEADCRAB )
+		return true;
+
+	const char *psz = pEnt->GetClassname();
+	return psz && !Q_strnicmp( psz, "npc_headcrab", 12 );
+}
+
+static void Survival_PlayWav( CBaseEntity *pEnt, const char *pszWav, float flVolume )
+{
+	if ( !pEnt || !pszWav || !pszWav[0] )
+		return;
+
+	CPASAttenuationFilter filter( pEnt );
+	EmitSound_t ep;
+	ep.m_nChannel = CHAN_AUTO;
+	ep.m_pSoundName = pszWav;
+	ep.m_flVolume = flVolume;
+	ep.m_SoundLevel = SNDLVL_NORM;
+	CBaseEntity::EmitSound( filter, pEnt->entindex(), ep );
+}
+
+void Survival_EmitNoise( const Vector &vecOrigin, float flRadius, CBaseEntity *pOwner, float flIntensity )
 {
 	if ( !sv_survival_noise_enabled.GetBool() || flRadius <= 0.0f )
 		return;
+
+	if ( flIntensity < 0.0f )
+		flIntensity = 0.0f;
+
+	float flMaster = sv_survival_noise_intensity.GetFloat();
+	if ( flMaster <= 0.0f )
+		return;
+	flRadius *= flMaster;
 
 #ifdef HL2MP
 	if ( HL2MPRules() )
@@ -2279,21 +2330,29 @@ void Survival_EmitNoise( const Vector &vecOrigin, float flRadius, CBaseEntity *p
 	}
 
 	static float s_flNextNoise[MAX_PLAYERS + 1];
+	static float s_flLastIntensity[MAX_PLAYERS + 1];
 	float flCooldown = sv_survival_noise_cooldown.GetFloat();
 	if ( flCooldown < 0.05f )
 		flCooldown = 0.05f;
-	if ( gpGlobals->curtime < s_flNextNoise[nSlot] )
+	// A gunshot during a footstep cooldown still has to land.
+	if ( gpGlobals->curtime < s_flNextNoise[nSlot] && flIntensity <= s_flLastIntensity[nSlot] + 0.05f )
 		return;
 	s_flNextNoise[nSlot] = gpGlobals->curtime + flCooldown;
+	s_flLastIntensity[nSlot] = flIntensity;
 
 	int iRadius = (int)flRadius;
 	if ( iRadius > 4096 )
 		iRadius = 4096;
 
+	float flAggro = sv_survival_noise_aggro_intensity.GetFloat();
+	bool bLoud = flIntensity >= flAggro;
+	float flSoundTime = bLoud ? 2.5f : 1.5f;
+
 	// SOUND_COMBAT is in every zombie's GetSoundInterests (the base NPC set).
 	// Hearing it only faces them (SCHED_ALERT_FACE_BESTSOUND). The chase below
 	// is what actually pulls them: UpdateEnemyMemory + SetEnemy + combat state.
-	CSoundEnt::InsertSound( SOUND_COMBAT, vecOrigin, iRadius, 2.0f, pOwner );
+	// DoFindPathToPos then steps toward that enemy when the map has no info_node.
+	CSoundEnt::InsertSound( SOUND_COMBAT, vecOrigin, iRadius, flSoundTime, pOwner );
 
 	CBasePlayer *pThreat = ToBasePlayer( pOwner );
 	if ( !pThreat || !pThreat->IsAlive() )
@@ -2321,7 +2380,12 @@ void Survival_EmitNoise( const Vector &vecOrigin, float flRadius, CBaseEntity *p
 	for ( int i = 0; i < nAIs; i++ )
 	{
 		CAI_BaseNPC *pNPC = ppAIs[i];
-		if ( !pNPC || !pNPC->IsAlive() || !Survival_IsZombieEntity( pNPC ) )
+		if ( !pNPC || !pNPC->IsAlive() )
+			continue;
+
+		bool bZombie = Survival_IsZombieEntity( pNPC );
+		bool bHeadcrab = Survival_IsHeadcrabEntity( pNPC );
+		if ( !bZombie && !( bHeadcrab && sv_survival_noise_headcrabs.GetBool() ) )
 			continue;
 		if ( pNPC->GetAbsOrigin().DistTo( vecOrigin ) > flRadius )
 			continue;
@@ -2332,7 +2396,14 @@ void Survival_EmitNoise( const Vector &vecOrigin, float flRadius, CBaseEntity *p
 		if ( pNPC->IsInAScript() || pNPC->GetState() == NPC_STATE_SCRIPT || pNPC->GetState() == NPC_STATE_DEAD )
 			continue;
 
-		if ( pNPC->GetEnemy() && pNPC->GetEnemy()->IsAlive() && pNPC->FVisible( pNPC->GetEnemy() ) )
+		CBaseEntity *pEnemy = pNPC->GetEnemy();
+		bool bHasEnemy = pEnemy && pEnemy->IsAlive();
+		// Already biting someone. A new noise should not peel them off that body.
+		if ( bHasEnemy && pNPC->FVisible( pEnemy ) && pNPC->GetAbsOrigin().DistTo( pEnemy->GetAbsOrigin() ) < 192.0f )
+			continue;
+
+		// Quiet noise (footsteps) only fills an empty target. Gunfire and the horn retarget.
+		if ( bHasEnemy && !bLoud )
 			continue;
 
 		if ( !pThreat )
@@ -2340,6 +2411,7 @@ void Survival_EmitNoise( const Vector &vecOrigin, float flRadius, CBaseEntity *p
 
 		pNPC->UpdateEnemyMemory( pThreat, vecOrigin, pNPC );
 		pNPC->SetEnemy( pThreat );
+		// COMBAT, not only ALERT, so the chase schedule runs and nodeless stepping has a goal.
 		pNPC->SetState( NPC_STATE_COMBAT );
 		pNPC->ForceDecisionThink();
 	}
@@ -2350,7 +2422,58 @@ void CHL2_Player::Survival_OnSprintNoise( void )
 	if ( !m_HL2Local.m_bNewSprinting || Survival_IsDowned() || !IsAlive() )
 		return;
 
-	Survival_EmitNoise( GetAbsOrigin(), sv_survival_noise_radius_sprint.GetFloat(), this );
+	Survival_EmitNoise( GetAbsOrigin(), sv_survival_noise_radius_sprint.GetFloat(), this, sv_survival_noise_intensity_sprint.GetFloat() );
+}
+
+void CHL2_Player::OnEmitFootstepSound( const CSoundParameters &params, const Vector &vecOrigin, float fVolume )
+{
+	(void)params;
+	(void)vecOrigin;
+	Survival_OnFootstepNoise( fVolume );
+}
+
+void CHL2_Player::Survival_OnFootstepNoise( float flVolume )
+{
+	if ( !sv_survival_noise_footsteps.GetBool() )
+		return;
+	if ( Survival_IsDowned() || !IsAlive() || IsInAVehicle() )
+		return;
+	// Sprint already emits on its own, larger radius.
+	if ( m_HL2Local.m_bNewSprinting )
+		return;
+	if ( flVolume < sv_survival_noise_footstep_minvol.GetFloat() )
+		return;
+
+	Survival_EmitNoise( GetAbsOrigin(), sv_survival_noise_radius_footstep.GetFloat(), this, sv_survival_noise_intensity_footstep.GetFloat() );
+}
+
+void Survival_OnVehicleNoise( const Vector &vecOrigin, CBasePlayer *pDriver, float flSpeedMph, int nButtons, int nButtonsDown )
+{
+	CHL2_Player *pHL2 = dynamic_cast<CHL2_Player *>( pDriver );
+	if ( !pHL2 || !pHL2->IsAlive() )
+		return;
+
+	if ( nButtonsDown & IN_ATTACK2 )
+	{
+		Survival_PlayWav( pHL2, "ambient/alarms/manhack_alert_pass1.wav", 0.55f );
+		Survival_EmitNoise( vecOrigin, sv_survival_noise_radius_horn.GetFloat(), pHL2, sv_survival_noise_intensity_horn.GetFloat() );
+		return;
+	}
+
+	// Airboat gun (and any driveable primary) does not go through the player's FireBullets.
+	if ( nButtons & IN_ATTACK )
+	{
+		Survival_EmitNoise( vecOrigin, sv_survival_noise_radius_gun.GetFloat(), pHL2, sv_survival_noise_intensity_gun.GetFloat() );
+		return;
+	}
+
+	bool bThrottle = ( nButtons & ( IN_FORWARD | IN_BACK | IN_SPEED ) ) != 0;
+	if ( !bThrottle )
+		return;
+	if ( flSpeedMph < sv_survival_noise_vehicle_speed.GetFloat() )
+		return;
+
+	Survival_EmitNoise( vecOrigin, sv_survival_noise_radius_vehicle.GetFloat(), pHL2, sv_survival_noise_intensity_vehicle.GetFloat() );
 }
 
 void CHL2_Player::Survival_OnUseNoise( void )
@@ -2367,10 +2490,17 @@ void CHL2_Player::Survival_OnWeaponNoise( CBaseCombatWeapon *pWeapon )
 		return;
 
 	float flRadius = sv_survival_noise_radius_gun.GetFloat();
-	if ( pWeapon && pWeapon->IsMeleeWeapon() )
+	float flIntensity = sv_survival_noise_intensity_gun.GetFloat();
+	// Crowbar (and the stun stick, if it is back) stay quiet. The weapon
+	// script does not set the melee flag, so the classname is checked too.
+	bool bMelee = pWeapon && ( pWeapon->IsMeleeWeapon() || FClassnameIs( pWeapon, "weapon_crowbar" ) || FClassnameIs( pWeapon, "weapon_stunstick" ) );
+	if ( bMelee )
+	{
 		flRadius = sv_survival_noise_radius_use.GetFloat();
+		flIntensity = sv_survival_noise_intensity_footstep.GetFloat();
+	}
 
-	Survival_EmitNoise( GetAbsOrigin(), flRadius, this );
+	Survival_EmitNoise( GetAbsOrigin(), flRadius, this, flIntensity );
 }
 
 void CHL2_Player::Survival_ApplyDownedMove( CMoveData *mv )
@@ -2595,6 +2725,15 @@ void CHL2_Player::Survival_UpdateRevive( void )
 	if ( m_flReviveChannel < flNeed )
 		return;
 
+	// Two survivors can channel the same body. The first one to finish wins;
+	// the other must not apply a second revive in the same think.
+	if ( !pTarget->Survival_IsDowned() || !pTarget->IsAlive() )
+	{
+		m_flReviveChannel = 0.0f;
+		m_hReviveTarget = NULL;
+		return;
+	}
+
 	int nHealth = sv_survival_revive_health.GetInt();
 	if ( nHealth < 1 )
 		nHealth = 1;
@@ -2610,6 +2749,7 @@ void CHL2_Player::Survival_UpdateRevive( void )
 
 	ClientPrint( pTarget, HUD_PRINTCENTER, "#Survival_Revived" );
 	ClientPrint( this, HUD_PRINTCENTER, "#Survival_YouRevived" );
+	UTIL_ClientPrintAll( HUD_PRINTTALK, "#Survival_RevivedTalk", GetPlayerName(), pTarget->GetPlayerName() );
 }
 
 static bool Survival_SprintUsesSuit( void )
@@ -2776,7 +2916,7 @@ int CHL2_Player::SurvivalInventory_CountType( int nType )
 
 bool CHL2_Player::SurvivalInventory_Add( int nType, int nAmount )
 {
-	if ( nType != SURVIVAL_ITEM_FOOD && nType != SURVIVAL_ITEM_WATER )
+	if ( nType != SURVIVAL_ITEM_FOOD && nType != SURVIVAL_ITEM_WATER && nType != SURVIVAL_ITEM_ANTIDOTE )
 		return false;
 
 	if ( nAmount < 1 )
@@ -2806,6 +2946,20 @@ bool CHL2_Player::SurvivalInventory_ConsumeType( int nType )
 			continue;
 
 		int nAmount = Survival_SlotAmount( m_HL2Local.m_nInventorySlot[i] );
+		if ( nType == SURVIVAL_ITEM_ANTIDOTE )
+		{
+			if ( m_HL2Local.m_flInfection <= 0.0f )
+			{
+				ClientPrint( this, HUD_PRINTCENTER, "#Survival_NotInfected" );
+				return false;
+			}
+
+			m_HL2Local.m_nInventorySlot.Set( i, Survival_PackSlot( SURVIVAL_ITEM_EMPTY, 0 ) );
+			Survival_ClearInfection();
+			ClientPrint( this, HUD_PRINTCENTER, "#Survival_AntidoteUsed" );
+			return true;
+		}
+
 		bool bApplied = ( nType == SURVIVAL_ITEM_FOOD ) ? ApplyFood( (float)nAmount ) : ApplyWater( (float)nAmount );
 		if ( !bApplied )
 		{
@@ -2821,17 +2975,21 @@ bool CHL2_Player::SurvivalInventory_ConsumeType( int nType )
 		return true;
 	}
 
-	ClientPrint( this, HUD_PRINTCENTER, nType == SURVIVAL_ITEM_FOOD ? "#Survival_NoFood" : "#Survival_NoWater" );
+	if ( nType == SURVIVAL_ITEM_ANTIDOTE )
+		ClientPrint( this, HUD_PRINTCENTER, "#Survival_NoAntidote" );
+	else
+		ClientPrint( this, HUD_PRINTCENTER, nType == SURVIVAL_ITEM_FOOD ? "#Survival_NoFood" : "#Survival_NoWater" );
 	return false;
 }
 
 void CHL2_Player::SurvivalInventory_Dump( CBasePlayer *pNotify )
 {
 	int nSlots = clamp( sv_survival_inventory_slots.GetInt(), 1, SURVIVAL_INVENTORY_SLOTS );
-	Survival_Reply( pNotify, UTIL_VarArgs( "survival_inventory: %d slots, food %d, water %d\n",
+	Survival_Reply( pNotify, UTIL_VarArgs( "survival_inventory: %d slots, food %d, water %d, antidote %d\n",
 		nSlots,
 		SurvivalInventory_CountType( SURVIVAL_ITEM_FOOD ),
-		SurvivalInventory_CountType( SURVIVAL_ITEM_WATER ) ) );
+		SurvivalInventory_CountType( SURVIVAL_ITEM_WATER ),
+		SurvivalInventory_CountType( SURVIVAL_ITEM_ANTIDOTE ) ) );
 
 	for ( int i = 0; i < nSlots; i++ )
 	{
@@ -2842,11 +3000,238 @@ void CHL2_Player::SurvivalInventory_Dump( CBasePlayer *pNotify )
 			pszName = "food";
 		else if ( nType == SURVIVAL_ITEM_WATER )
 			pszName = "water";
+		else if ( nType == SURVIVAL_ITEM_ANTIDOTE )
+			pszName = "antidote";
 
 		Survival_Reply( pNotify, UTIL_VarArgs( "  slot %d: %s +%d\n", i, pszName, Survival_SlotAmount( nPacked ) ) );
 	}
 }
 
+const char *Survival_ItemToken( int nType )
+{
+	if ( nType == SURVIVAL_ITEM_FOOD )
+		return "#Survival_ItemFood";
+	if ( nType == SURVIVAL_ITEM_WATER )
+		return "#Survival_ItemWater";
+	if ( nType == SURVIVAL_ITEM_ANTIDOTE )
+		return "#Survival_ItemAntidote";
+	return "#Survival_ItemFood";
+}
+
+bool CHL2_Player::SurvivalInventory_RemoveFirst( int nPreferredType, int &nOutType, int &nOutAmount )
+{
+	int nOrder[3];
+	int nOrderCount = 0;
+	if ( nPreferredType == SURVIVAL_ITEM_FOOD || nPreferredType == SURVIVAL_ITEM_WATER || nPreferredType == SURVIVAL_ITEM_ANTIDOTE )
+	{
+		nOrder[0] = nPreferredType;
+		nOrderCount = 1;
+	}
+	else
+	{
+		nOrder[0] = SURVIVAL_ITEM_FOOD;
+		nOrder[1] = SURVIVAL_ITEM_WATER;
+		nOrder[2] = SURVIVAL_ITEM_ANTIDOTE;
+		nOrderCount = 3;
+	}
+
+	int nSlots = clamp( sv_survival_inventory_slots.GetInt(), 1, SURVIVAL_INVENTORY_SLOTS );
+	for ( int nPass = 0; nPass < nOrderCount; nPass++ )
+	{
+		for ( int i = 0; i < nSlots; i++ )
+		{
+			if ( Survival_SlotType( m_HL2Local.m_nInventorySlot[i] ) != nOrder[nPass] )
+				continue;
+
+			nOutType = nOrder[nPass];
+			nOutAmount = Survival_SlotAmount( m_HL2Local.m_nInventorySlot[i] );
+			m_HL2Local.m_nInventorySlot.Set( i, Survival_PackSlot( SURVIVAL_ITEM_EMPTY, 0 ) );
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static CHL2_Player *Survival_FindGiveTarget( CHL2_Player *pPlayer )
+{
+	if ( !pPlayer )
+		return NULL;
+
+	Vector vecStart = pPlayer->EyePosition();
+	Vector vecForward;
+	AngleVectors( pPlayer->EyeAngles(), &vecForward );
+
+	float flRange = sv_survival_give_range.GetFloat();
+	if ( flRange < 16.0f )
+		flRange = 16.0f;
+
+	CHL2_Player *pBest = NULL;
+	float flBest = flRange;
+	for ( int i = 1; i <= gpGlobals->maxClients; i++ )
+	{
+		CHL2_Player *pOther = dynamic_cast<CHL2_Player *>( UTIL_PlayerByIndex( i ) );
+		if ( !pOther || pOther == pPlayer || !pOther->IsAlive() )
+			continue;
+
+		Vector vecTo = pOther->WorldSpaceCenter() - vecStart;
+		float flDist = vecTo.Length();
+		if ( flDist > flRange || flDist < 1.0f )
+			continue;
+
+		Vector vecDir = vecTo / flDist;
+		if ( DotProduct( vecDir, vecForward ) < 0.4f )
+			continue;
+
+		trace_t tr;
+		CTraceFilterSimple filter( pPlayer, COLLISION_GROUP_NONE );
+		UTIL_TraceLine( vecStart, pOther->WorldSpaceCenter(), MASK_BLOCKLOS, &filter, &tr );
+		if ( tr.fraction < 1.0f && tr.m_pEnt != pOther )
+			continue;
+
+		if ( flDist < flBest )
+		{
+			flBest = flDist;
+			pBest = pOther;
+		}
+	}
+
+	return pBest;
+}
+
+void CHL2_Player::Survival_GiveItem( const char *pszWhich )
+{
+	if ( !IsAlive() || Survival_IsDowned() )
+	{
+		ClientPrint( this, HUD_PRINTCENTER, "#Survival_GiveDowned" );
+		return;
+	}
+
+	int nPreferred = 0;
+	if ( pszWhich && pszWhich[0] )
+	{
+		if ( !Q_stricmp( pszWhich, "food" ) || !Q_stricmp( pszWhich, "comida" ) )
+			nPreferred = SURVIVAL_ITEM_FOOD;
+		else if ( !Q_stricmp( pszWhich, "water" ) || !Q_stricmp( pszWhich, "agua" ) )
+			nPreferred = SURVIVAL_ITEM_WATER;
+		else if ( !Q_stricmp( pszWhich, "antidote" ) || !Q_stricmp( pszWhich, "antidoto" ) )
+			nPreferred = SURVIVAL_ITEM_ANTIDOTE;
+	}
+
+	CHL2_Player *pTarget = Survival_FindGiveTarget( this );
+	if ( !pTarget )
+	{
+		ClientPrint( this, HUD_PRINTCENTER, "#Survival_GiveNoOne" );
+		return;
+	}
+
+	int nType = 0;
+	int nAmount = 0;
+	if ( !SurvivalInventory_RemoveFirst( nPreferred, nType, nAmount ) )
+	{
+		ClientPrint( this, HUD_PRINTCENTER, "#Survival_GiveNone" );
+		return;
+	}
+
+	if ( !pTarget->SurvivalInventory_Add( nType, nAmount ) )
+	{
+		SurvivalInventory_Add( nType, nAmount );
+		ClientPrint( this, HUD_PRINTCENTER, "#Survival_GiveFull" );
+		return;
+	}
+
+	const char *pszToken = Survival_ItemToken( nType );
+	ClientPrint( this, HUD_PRINTCENTER, "#Survival_Gave", pszToken );
+	ClientPrint( pTarget, HUD_PRINTCENTER, "#Survival_Received", pszToken );
+}
+
+static int Survival_ParseItemType( const char *pszWhich )
+{
+	if ( !pszWhich || !pszWhich[0] )
+		return 0;
+	if ( !Q_stricmp( pszWhich, "food" ) || !Q_stricmp( pszWhich, "comida" ) )
+		return SURVIVAL_ITEM_FOOD;
+	if ( !Q_stricmp( pszWhich, "water" ) || !Q_stricmp( pszWhich, "agua" ) )
+		return SURVIVAL_ITEM_WATER;
+	if ( !Q_stricmp( pszWhich, "antidote" ) || !Q_stricmp( pszWhich, "antidoto" ) )
+		return SURVIVAL_ITEM_ANTIDOTE;
+	return 0;
+}
+
+static void CC_SurvivalGive( const CCommand &args )
+{
+	CHL2_Player *pPlayer = dynamic_cast<CHL2_Player *>( UTIL_GetCommandClient() );
+	if ( !pPlayer )
+	{
+		Msg( "survival_give: must be run by a player.\n" );
+		return;
+	}
+
+	const char *pszWhich = ( args.ArgC() > 1 ) ? args.Arg( 1 ) : "";
+	pPlayer->Survival_GiveItem( pszWhich );
+}
+
+static void CC_SurvivalAntidote( const CCommand & )
+{
+	CHL2_Player *pPlayer = dynamic_cast<CHL2_Player *>( UTIL_GetCommandClient() );
+	if ( !pPlayer )
+	{
+		Msg( "survival_antidote: must be run by a player.\n" );
+		return;
+	}
+
+	pPlayer->SurvivalInventory_ConsumeType( SURVIVAL_ITEM_ANTIDOTE );
+}
+
+static void CC_SurvivalHorn( const CCommand & )
+{
+	CHL2_Player *pPlayer = dynamic_cast<CHL2_Player *>( UTIL_GetCommandClient() );
+	if ( !pPlayer )
+	{
+		Msg( "survival_horn: must be run by a player.\n" );
+		return;
+	}
+
+	if ( !pPlayer->IsInAVehicle() )
+	{
+		ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_HornNeedVehicle" );
+		return;
+	}
+
+	CBaseEntity *pVehicle = pPlayer->GetVehicleEntity();
+	Vector vecOrigin = pVehicle ? pVehicle->GetAbsOrigin() : pPlayer->GetAbsOrigin();
+	Survival_PlayWav( pPlayer, "ambient/alarms/manhack_alert_pass1.wav", 0.7f );
+	Survival_EmitNoise( vecOrigin, sv_survival_noise_radius_horn.GetFloat(), pPlayer, sv_survival_noise_intensity_horn.GetFloat() );
+	ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_Horn" );
+}
+
+static void CC_SurvivalSpawnSupply( const CCommand &args )
+{
+	CHL2_Player *pPlayer = dynamic_cast<CHL2_Player *>( UTIL_GetCommandClient() );
+	if ( !pPlayer )
+	{
+		Msg( "survival_spawn_supply: must be run by a player.\n" );
+		return;
+	}
+
+	int nType = Survival_ParseItemType( args.ArgC() > 1 ? args.Arg( 1 ) : "food" );
+	if ( !nType )
+		nType = SURVIVAL_ITEM_FOOD;
+
+	int nAmount = ( nType == SURVIVAL_ITEM_ANTIDOTE ) ? 100 : 25;
+	if ( !pPlayer->SurvivalInventory_Add( nType, nAmount ) )
+	{
+		ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_BackpackFull" );
+		return;
+	}
+
+	ClientPrint( pPlayer, HUD_PRINTCENTER, "#Survival_Received", Survival_ItemToken( nType ) );
+}
+
+static ConCommand survival_give( "survival_give", CC_SurvivalGive, "Give food, water or an antidote to the teammate you are looking at. Optional: food, water, antidote." );
+static ConCommand survival_antidote( "survival_antidote", CC_SurvivalAntidote, "Use an antidote from the backpack. Clears infection." );
+static ConCommand survival_horn( "survival_horn", CC_SurvivalHorn, "Honk if you are in a vehicle. Wakes zombies in sv_survival_noise_radius_horn." );
+static ConCommand survival_spawn_supply( "survival_spawn_supply", CC_SurvivalSpawnSupply, "Put food, water or an antidote in the backpack. Requires sv_cheats 1.", FCVAR_CHEAT );
 
 //-----------------------------------------------------------------------------
 // Purpose: Interface to drain power from the suit's power supply.

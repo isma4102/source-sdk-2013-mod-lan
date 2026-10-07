@@ -87,7 +87,86 @@ survival_dump
 cl_survival_dump
 ```
 
-El nombre del mod, en Steam y en la ventana, es **Supervivencia Paysandu**. El `hostname` del listen server usa el mismo ASCII porque la consola del motor no siempre acepta la ú. Los textos del HUD en español siguen en `resource/mod_hl2mp_spanish.txt` (UTF-16); el menú principal no los lee.
+El nombre del mod, en Steam y en la ventana, es **Supervivencia Paysandu**. El `hostname` del listen server usa el mismo ASCII porque la consola del motor no siempre acepta la ú. Los textos del HUD en español siguen en `resource/mod_hl2mp_spanish.txt` (UTF-16); el menú principal no los lee. El proyecto se llama Sanducero.
+
+## Ruido, refugio, radar y ambiente
+
+El pulso de la Fase 15 sigue en `Survival_EmitNoise`. Esta fase le suma pasos fuertes, el acelerador de un vehículo y la bocina, y deja que los headcrabs también investiguen. `sv_survival_nodeless_chase` no cambia: el zombi recibe `SetEnemy` y el navegador avanza a pasos si el mapa no tiene `info_node`.
+
+`sv_survival_noise_intensity` escala todos los radios. La intensidad de cada fuente (disparo, paso, bocina) no cambia el radio: si pasa de `sv_survival_noise_aggro_intensity` (0.7), el zombi suelta un objetivo que no tenga encima. Un paso (`sv_survival_noise_intensity_footstep` 0.35) solo despierta a quien no persigue a nadie. La palanca usa el radio de `+use`, no el del disparo. `sv_survival_noise_footsteps 0` apaga los pasos.
+
+En `dm_lockdown`, con `exec survival_coop` y `sv_cheats 1`:
+
+```
+survival_spawn_zombie
+survival_noise
+```
+
+El zombi tiene que caminar hacia el pulso. Un disparo de pistola hace lo mismo dentro de `sv_survival_noise_radius_gun` (900). Para la bocina y el motor: `ch_createairboat`, subirse, acelerar por encima de `sv_survival_noise_vehicle_speed` (millas por hora) o `survival_horn` / ataque secundario. El jeep (`prop_vehicle_jeep`) no está en el proyecto Server (HL2MP); el gancho está en `CPropVehicleDriveable`, así que un airboat sí cuenta. El vehículo hay que colocarlo en el mapa (o crearlo con el cheat).
+
+## Refugio, alijo y cama corta
+
+No hay mapa nuevo. Las clases quedan listas para Hammer (`sanducero.fgd`):
+
+| Entidad | Qué hace | Qué falta en el mapa |
+| --- | --- | --- |
+| `info_survival_safehouse` | Punto con radio. `survival_claim_safehouse` lo marca en el radar. | Colocarlo. `door` y `door2` son nombres de `func_door` / `func_door_rotating` que ya existan: reciben `Lock`. `OnClaimed` puede disparar un `logic_relay`. |
+| `trigger_survival_safehouse` | El mismo reclamo, con el volumen del brush. | El brush. `ent_create` no arma un volumen. |
+| `survival_stash` | `+use` saca. `survival_stash_put` guarda comida, agua o antídoto. `shared 1` es de todos; `0` es por jugador. | Colocarlo. El modelo es la caja de madera que ya usa el mod. |
+| `survival_cot` | Stamina a 100 y `sv_survival_bed_heal` de vida. No salta la noche. | Colocarlo, o `ent_create survival_cot`. |
+| `survival_bed` | La cama de la Fase 12, ahora también cura. De noche sigue saltando a las 07:00. | Colocarlo. |
+| `item_survival_antidote` | `+use` lo guarda. `survival_antidote` baja la infección a 0. | Colocarlo, o `survival_spawn_supply antidote`. |
+
+Prueba sin mapa, parado donde cae el `ent_create` (el radio por defecto es 384):
+
+```
+ent_create info_survival_safehouse
+survival_claim_safehouse
+ent_create survival_stash
+survival_spawn_supply food
+survival_stash_put
+```
+
+Si hay un zombi dentro del radio, el reclamo dice que todavía hay infectados (`sv_survival_safehouse_require_clear 1`). El candado de una puerta brush no se puede probar hasta que el mapa nombre esa puerta.
+
+## Radar, días e infección
+
+El radar es el cuadro de arriba a la derecha: tú en el centro, compañeros en verde, infectados en rojo (solo los que el cliente ya tiene cerca; fuera del PVS no se dibujan) y el refugio en amarillo, pegado al borde si queda lejos. `cl_survival_radar 0` lo apaga. `cl_survival_radar_range` es el alcance.
+
+El día compartido y la hora siguen en el HUD de necesidades. La infección no parpadea a rojo pleno: la barra se queda violeta y la pantalla toma un velo bajo que respira despacio.
+
+## Cooperativo
+
+El herido de la Fase 15 sigue igual, y dos jugadores pueden reanimar a dos heridos a la vez: cada uno mira al suyo y mantiene E. Si los dos miran al mismo, el primero que termina el canal lo levanta y el otro no aplica un segundo revive. El chat dice quién reanimó a quién. La infección no se cura al revivir.
+
+Para pasar comida, agua o antídoto, mira al compañero (también si está herido) y usa `survival_give`. Opcional: `survival_give food`, `water` o `antidote`. Distancia: `sv_survival_give_range`.
+
+Teclas por defecto, en `cfg/autoexec.cfg` y en `scripts/kb_def.lst` / `kb_act.lst`:
+
+```
+bind g survival_eat
+bind h survival_drink
+bind j survival_give
+bind n survival_antidote
+bind k survival_horn
+```
+
+`autoexec.cfg` las vuelve a aplicar al abrir el mod. El arranque sigue entregando palanca y el arsenal realista de la Fase 11; el sprint sigue en las ConVars de la Fase 18.
+
+## Ambiente
+
+No hay WAV nuevos. Un manager del cliente (`cl_survival_ambient 1`) suelta de vez en cuando viento, un derrumbe lejano o una sirena de HL2, a volumen bajo (`cl_survival_ambient_volume`) y con un hueco de unos `cl_survival_ambient_gap` segundos más otro tanto al azar. No es un loop. El SDK no trae voces en español, así que el ambiente es sin palabras. Un `ambient_generic` en el mapa sigue siendo opcional y no hace falta para que esto suene.
+
+## Compilar (Windows, Release | x64)
+
+En esta rama no hay binarios. En el PC, con Source SDK Base 2013 Multiplayer y Visual Studio 2022:
+
+```bat
+cd src
+createallprojects.bat
+```
+
+Abre `src\everything.sln`. Configuración **Release**, plataforma **x64** (si el desplegable dice Win64, es esa). Compila **Client (HL2MP)** y **Server (HL2MP)**. Copia `client.dll` y `server.dll` a `steamapps\sourcemods\mod_hl2mp\bin\`. El proyecto del server incluye `hl2\survival_safehouse.cpp` (también en HL2, Episodic y Lost Coast, porque comparten `item_survival.cpp`). Cliente y servidor tienen que ser de esta misma fase: el marcador del refugio va en la tabla de red de `CHL2MPRules`.
 
 ## Mapa de prueba
 
